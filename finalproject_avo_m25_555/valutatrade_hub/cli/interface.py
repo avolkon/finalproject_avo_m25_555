@@ -1,13 +1,13 @@
 """CLI: register, login."""
 
 # Стандартные библиотеки для CLI
-import argparse        # Парсер аргументов командной строки (--username, --password)
-import sys             # sys.argv (аргументы), sys.exit() (завершение с кодом)
+import argparse  # Парсер аргументов командной строки (--username, --password)
+import sys  # sys.argv (аргументы), sys.exit() (завершение с кодом)
 
 # Бизнес-логика регистрации/авторизации
 from valutatrade_hub.core.usecases import (
-    register_user,       # Регистрация: username, password → user_id
-    login_user           # Авторизация: username, password → сессия
+    login_user,  # Авторизация: username, password → сессия
+    register_user,  # Регистрация: username, password → user_id
 )
 
 
