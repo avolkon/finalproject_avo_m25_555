@@ -2,7 +2,7 @@
 """Entry point CLI."""
 
 # Абсолютный импорт из пакета
-from valutatrade_hub.cli.interface import main as cli_main
+from .valutatrade_hub.cli.interface import main as cli_main
 
 
 def main() -> None:
