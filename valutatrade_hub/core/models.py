@@ -107,7 +107,7 @@ class User:
         username: str,           # Имя пользователя
         hashed_password: str,    # Захешированный пароль
         salt: str,               # Соль для хеша
-        registration_date: datetime,  # Дата регистрации
+        registration_date: datetime  # Дата регистрации
     ):
         self._user_id = user_id              # Приватный ID
         self._username = username            # Приватное имя
@@ -124,6 +124,24 @@ class User:
     def username(self) -> str:          # Геттер имени
         """Имя пользователя."""
         return self._username            # Возврат приватного значения
+    
+    @property
+    def hashed_password(self) -> str:
+        """Захешированный пароль пользователя."""
+        # Возврат приватного хеша для сериализации
+        return self._hashed_password
+
+    @property
+    def salt(self) -> str:
+        """Уникальная соль для хеширования пароля."""
+        # Соль нужна для verify_password()
+        return self._salt
+
+    @property
+    def registration_date(self) -> datetime:
+        """Дата и время регистрации пользователя."""
+        # ISO формат для JSON: 2025-10-09T12:00:00
+        return self._registration_date
 
     def get_user_info(self) -> str:     # Метод информации
         """Информация без пароля."""
