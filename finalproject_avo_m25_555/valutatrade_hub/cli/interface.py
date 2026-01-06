@@ -17,17 +17,17 @@ def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Crypto CLI")
     # Добавляет подпарсеры для команд (register, login)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    
+
     # Подпарсер команды register
     reg = subparsers.add_parser("register")
     reg.add_argument("--username", required=True)  # Обязательный username
     reg.add_argument("--password", required=True)  # Обязательный password
-    
-    # Подпарсер команды login  
+
+    # Подпарсер команды login
     log = subparsers.add_parser("login")
     log.add_argument("--username", required=True)  # Обязательный username
     log.add_argument("--password", required=True)  # Обязательный password
-    
+
     # Возвращает настроенный парсер
     return parser
 
@@ -37,11 +37,11 @@ def main(argv: list[str] | None = None) -> None:
     # sys.argv если аргументы не переданы
     if argv is None:
         argv = sys.argv
-    
+
     # Создаёт парсер и парсит аргументы (кроме argv[0] — имя скрипта)
     parser = create_parser()
     args = parser.parse_args(argv[1:])
-    
+
     try:
         # Диспетчеризация по команде
         if args.command == "register":

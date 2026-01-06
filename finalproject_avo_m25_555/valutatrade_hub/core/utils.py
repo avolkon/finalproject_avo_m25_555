@@ -28,9 +28,11 @@ from .models import User  # Относительный импорт класса
 DATA_DIR = Path("data")
 USERS_FILE = DATA_DIR / "users.json"
 
+
 def ensure_data_dir() -> None:
     """Создать папку data."""
     DATA_DIR.mkdir(exist_ok=True)
+
 
 def load_users() -> list[dict[str, Any]]:
     """Загрузить пользователей."""
@@ -40,23 +42,24 @@ def load_users() -> list[dict[str, Any]]:
     if not USERS_FILE.exists():
         return []  # Возвращает пустой список если файла нет
     # Открывает файл для чтения в UTF-8 кодировке
-    with USERS_FILE.open('r', encoding='utf-8') as f:
+    with USERS_FILE.open("r", encoding="utf-8") as f:
         # Парсит JSON → List[Dict] для работы с пользователями
         return json.load(f)
+
 
 def save_users(users: list[dict[str, Any]]) -> None:
     """Сохранить с backup."""
     # Гарантирует наличие папки data
     ensure_data_dir()
     # Создаёт имя backup файла: users.json.backup
-    backup = USERS_FILE.with_suffix('.backup')
+    backup = USERS_FILE.with_suffix(".backup")
     # Если файл существует — перемещает в backup (атомарно)
     if USERS_FILE.exists():
         USERS_FILE.replace(backup)
-    
+
     try:
         # Открывает файл для записи UTF-8
-        with USERS_FILE.open('w', encoding='utf-8') as f:
+        with USERS_FILE.open("w", encoding="utf-8") as f:
             # Сохраняет список словарей в JSON с отступами
             # ensure_ascii=False — поддержка русских символов
             json.dump(users, f, indent=2, ensure_ascii=False)
@@ -82,7 +85,7 @@ def serialize_user(user: User) -> dict[str, Any]:
         "username": user.username,
         "hashed_password": user.hashed_password,
         "salt": user.salt,
-        "registration_date": user.registration_date.isoformat()
+        "registration_date": user.registration_date.isoformat(),
     }
 
 
@@ -90,7 +93,7 @@ def deserialize_user(data: dict[str, Any]) -> User:
     """dict → User.
     Восстанавливает объект User из словаря ТЗ-формата из JSON
     # user_id из JSON → параметр конструктора User
-    # username из JSON → параметр конструктора User  
+    # username из JSON → параметр конструктора User
     # hashed_password из JSON → параметр конструктора User
     # salt из JSON → параметр конструктора User
     # registration_date парсится из ISO → datetime.fromisoformat()
@@ -100,6 +103,5 @@ def deserialize_user(data: dict[str, Any]) -> User:
         data["username"],
         data["hashed_password"],
         data["salt"],
-        datetime.fromisoformat(data["registration_date"])
+        datetime.fromisoformat(data["registration_date"]),
     )
-

@@ -24,7 +24,7 @@ class User:
         username: str,
         hashed_password: str,
         salt: str,
-        registration_date: datetime
+        registration_date: datetime,
     ):
         """Конструктор принимает все параметры."""
         self._user_id = user_id
@@ -68,19 +68,21 @@ class User:
 
     def get_user_info(self) -> str:
         """Информация без пароля."""
-        return (f"ID: {self.user_id}, Имя: {self.username}, "
-                f"Регистрация: {self.registration_date}")
+        return (
+            f"ID: {self.user_id}, Имя: {self.username}, "
+            f"Регистрация: {self.registration_date}"
+        )
 
     def change_password(self, new_password: str) -> NoReturn:
         """Смена пароля с хешированием."""
         if len(new_password) < 4:
             raise ValueError("Пароль должен быть не короче 4 символов")
-        
+
         # sha256(password + salt)
-        data = new_password.encode('utf-8') + self.salt.encode('utf-8')
+        data = new_password.encode("utf-8") + self.salt.encode("utf-8")
         self._hashed_password = hashlib.sha256(data).hexdigest()
 
     def verify_password(self, password: str) -> bool:
         """Проверка пароля."""
-        data = password.encode('utf-8') + self.salt.encode('utf-8')
+        data = password.encode("utf-8") + self.salt.encode("utf-8")
         return hashlib.sha256(data).hexdigest() == self.hashed_password
