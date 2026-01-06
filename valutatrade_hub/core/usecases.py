@@ -213,3 +213,54 @@ def save_portfolio(portfolio: Portfolio) -> None:  # Объект → JSON
             
     portfolios.append(portfolio_data)  # Новый портфель
     save_portfolios(portfolios)      # Финальное сохранение
+
+def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
+    """Покупка валюты: списать USD, начислить целевую валюту."""
+    # Загрузка портфеля текущего пользователя
+    portfolio = get_portfolio(user_id)
+    
+    # Нормализация кода валюты в верхний регистр
+    currency_code = currency_code.upper()
+    
+    # Валидация: сумма должна быть положительной
+    if amount <= 0:
+        raise ValueError("Сумма должна быть положительной")
+    
+    # Валидация: валюта поддерживается и не USD
+    if (currency_code not in Portfolio.EXCHANGE_RATES or 
+        currency_code == 'USD'):
+        raise ValueError("Валюта не поддерживается")
+    
+    # Получение USD кошелька (гарантировано get_portfolio)
+    usd_wallet = portfolio.get_wallet('USD')
+    # Защита от None (mypy strict)
+    # Вместо assert можно:
+    if usd_wallet is None:
+        raise ValueError("Критическая ошибка: USD кошелёк отсутствует")
+        # Создание целевого кошелька если не существует
+    
+    if portfolio.get_wallet(currency_code) is None:
+        portfolio.add_currency(currency_code)
+    
+    # Расчёт стоимости покупки в USD
+    usd_cost = amount * Portfolio.EXCHANGE_RATES[currency_code]
+    
+    # Проверка достаточности USD баланса
+    if usd_wallet.balance < usd_cost:
+        raise ValueError("Недостаточно USD")
+    
+    # Списание USD за покупку
+    usd_wallet.withdraw(usd_cost)
+    
+    # Получение целевого кошелька ПОСЛЕ создания
+    target_wallet = portfolio.get_wallet(currency_code)
+    # Защита от None (логическая ошибка если add_currency не сработал)
+    if target_wallet is None:
+        raise ValueError("Критическая ошибка: создание кошелька")
+
+    # Начисление купленной валюты
+    target_wallet.deposit(amount)
+    
+    # Сохранение обновлённого портфеля
+    save_portfolio(portfolio)
+
