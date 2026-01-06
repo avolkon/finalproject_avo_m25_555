@@ -1,31 +1,30 @@
 """Логика регистрации/входа."""
 
-from typing import Optional
-                    # Аннотация для Optional[int|User]: значение или None
-                    # CURRENT_USER_ID: Optional[int] = None
+# Класс datetime.now() для даты регистрации
+# User(user_id, ..., datetime.now())
+import secrets  # Криптографически стойкий генератор
 
-from datetime import datetime  
-                    # Класс datetime.now() для даты регистрации
-                    # User(user_id, ..., datetime.now())
+# Аннотация для Optional[int|User]: значение или None
+# CURRENT_USER_ID: Optional[int] = None
+from datetime import datetime
 
-import secrets         # Криптографически стойкий генератор
-                    # salt = secrets.token_hex(4) — уникальная соль пароля
-
+# salt = secrets.token_hex(4) — уникальная соль пароля
 from .models import User
-                    # Относительный импорт класса User из models.py
-                    # user = User(...), user.change_password(), user.verify_password()
 
+# Относительный импорт класса User из models.py
+# user = User(...), user.change_password(), user.verify_password()
 from .utils import (
-    load_users,         # users.json → List[Dict]  
-    save_users,         # List[Dict] → users.json (атомарно)
-    serialize_user,     # User → Dict для JSON
-    deserialize_user    # Dict → User из JSON
+    deserialize_user,  # Dict → User из JSON
+    load_users,  # users.json → List[Dict]  
+    save_users,  # List[Dict] → users.json (атомарно)
+    serialize_user,  # User → Dict для JSON
 )
+
                     # Все утилиты JSON-хранилища для работы с пользователями
 
 
 
-CURRENT_USER_ID: Optional[int] = None
+CURRENT_USER_ID: int | None = None
 """Глобальная переменная: ID текущего залогиненного пользователя."""
 
 
@@ -87,7 +86,7 @@ def login_user(username: str, password: str) -> None:
     raise ValueError("Пользователь/пароль неверны")
 
 
-def get_current_user() -> Optional[User]:
+def get_current_user() -> User | None:
     """Получить текущего залогиненного пользователя."""
     # Нет активной сессии
     if CURRENT_USER_ID is None:

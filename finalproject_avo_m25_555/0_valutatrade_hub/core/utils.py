@@ -32,7 +32,7 @@ def ensure_data_dir() -> None:
     """Создать папку data."""
     DATA_DIR.mkdir(exist_ok=True)
 
-def load_users() -> List[Dict[str, Any]]:
+def load_users() -> list[dict[str, Any]]:
     """Загрузить пользователей."""
     # Гарантирует наличие папки data перед чтением
     ensure_data_dir()
@@ -44,7 +44,7 @@ def load_users() -> List[Dict[str, Any]]:
         # Парсит JSON → List[Dict] для работы с пользователями
         return json.load(f)
 
-def save_users(users: List[Dict[str, Any]]) -> None:
+def save_users(users: list[dict[str, Any]]) -> None:
     """Сохранить с backup."""
     # Гарантирует наличие папки data
     ensure_data_dir()
