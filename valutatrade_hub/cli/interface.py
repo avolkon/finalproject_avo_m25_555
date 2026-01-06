@@ -85,8 +85,20 @@ def show_portfolio(base: str) -> None:
     print("-" * 30)  # Разделительная линия
     print(f"ИТОГО: {total:.2f} {base_code}")  # Вывод общей суммы
 
+def require_login() -> None:
+    """Проверка активной сессии, sys.exit(1) если нет login."""
+    # Проверка наличия залогиненного пользователя
+    if CURRENT_USER_ID is None:
+        # Сообщение об отсутствии сессии
+        print("Сначала выполните login")
+        # Завершение CLI с кодом ошибки 1
+        sys.exit(1)   # Happy path: пользователь авторизован, продолжаем
+
 def buy_cli(currency: str, amount: float) -> None:
     """CLI обработка покупки валюты с выводом портфеля."""
+    
+    require_login()  # Проверка сессии через утилиту
+    
     # Проверка активной сессии пользователя
     if CURRENT_USER_ID is None:
         print("Сначала выполните login")
@@ -100,6 +112,9 @@ def buy_cli(currency: str, amount: float) -> None:
 
 def sell_cli(currency: str, amount: float) -> None:
     """CLI обработка продажи валюты с выводом портфеля."""
+    
+    require_login()  # Проверка сессии через утилиту
+    
     # Проверка активной сессии пользователя
     if CURRENT_USER_ID is None:
         print("Сначала выполните login")
@@ -110,7 +125,6 @@ def sell_cli(currency: str, amount: float) -> None:
     
     # Вывод обновлённого портфеля в USD
     show_portfolio('USD')
-
 
 def main(argv: list[str] | None = None) -> None:
     """Главная точка входа CLI."""
