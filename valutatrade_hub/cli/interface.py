@@ -12,6 +12,8 @@ from valutatrade_hub.core.usecases import (  # Импорт бизнес-лог�
     CURRENT_USER_ID,                       # Глобальная переменная текущего пользователя
     get_portfolio,                         # Функция получения портфеля
     load_user,                             # Функция загрузки пользователя по ID
+    buy_currency,
+    sell_currency
 )
 from valutatrade_hub.core.models import Portfolio  # Импорт модели портфеля
 
