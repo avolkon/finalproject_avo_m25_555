@@ -264,3 +264,47 @@ def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
     # Сохранение обновлённого портфеля
     save_portfolio(portfolio)
 
+def sell_currency(user_id: int, currency_code: str, amount: float) -> None:
+    """Продажа валюты: списать целевую, начислить USD."""
+    # Загрузка портфеля текущего пользователя
+    portfolio = get_portfolio(user_id)
+    
+    # Нормализация кода валюты в верхний регистр
+    currency_code = currency_code.upper()
+    
+    # Валидация: сумма должна быть положительной
+    if amount <= 0:
+        raise ValueError("Сумма должна быть положительной")
+    
+    # Валидация: валюта поддерживается и не USD
+    if (currency_code not in Portfolio.EXCHANGE_RATES or 
+        currency_code == 'USD'):
+        raise ValueError("Валюта не поддерживается")
+    
+    # Получение целевого кошелька для продажи
+    target_wallet = portfolio.get_wallet(currency_code)
+    # Защита от None: кошелёк должен существовать для продажи
+    if target_wallet is None:
+        raise ValueError("Критическая ошибка: целевой кошелёк отсутствует")
+    
+    # Получение USD кошелька (гарантировано get_portfolio)
+    usd_wallet = portfolio.get_wallet('USD')
+    # Защита от None для mypy
+    if usd_wallet is None:
+        raise ValueError("Критическая ошибка: USD кошелёк отсутствует")
+    
+    # Проверка достаточности баланса целевой валюты
+    if target_wallet.balance < amount:
+        raise ValueError("Недостаточно средств на кошельке")
+    
+    # Расчёт дохода в USD от продажи
+    usd_income = amount * Portfolio.EXCHANGE_RATES[currency_code]
+    
+    # Списание валюты с целевого кошелька
+    target_wallet.withdraw(amount)
+    
+    # Начисление USD на базовый кошелёк
+    usd_wallet.deposit(usd_income)
+    
+    # Сохранение обновлённого портфеля
+    save_portfolio(portfolio)
