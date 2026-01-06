@@ -136,6 +136,12 @@ def main(argv: list[str] | None = None) -> None:
         
         elif args.command == "show-portfolio":  # Обработка команды показа портфеля
             show_portfolio(args.base)  # Вызов функции показа портфеля
+
+        elif args.command == "buy": # Обработка команды покупки валюты
+            buy_cli(args.currency, args.amount)
+          
+        elif args.command == "sell":  # Обработка команды продажи валюты
+            sell_cli(args.currency, args.amount)
     
     except ValueError as e:  # Обработка ошибок валидации
         print(f"Ошибка ввода: {e}")  # Вывод сообщения об ошибке
