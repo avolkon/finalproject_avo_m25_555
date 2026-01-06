@@ -85,6 +85,19 @@ def show_portfolio(base: str) -> None:
     print("-" * 30)  # Разделительная линия
     print(f"ИТОГО: {total:.2f} {base_code}")  # Вывод общей суммы
 
+def buy_cli(currency: str, amount: float) -> None:
+    """CLI обработка покупки валюты с выводом портфеля."""
+    # Проверка активной сессии пользователя
+    if CURRENT_USER_ID is None:
+        print("Сначала выполните login")
+        return
+    
+    # Выполнение покупки через бизнес-логику
+    buy_currency(CURRENT_USER_ID, currency, amount)
+    
+    # Вывод обновлённого портфеля в USD
+    show_portfolio('USD')
+
 
 def main(argv: list[str] | None = None) -> None:
     """Главная точка входа CLI."""
