@@ -88,7 +88,6 @@ def serialize_user(user: User) -> dict[str, Any]:
         "registration_date": user.registration_date.isoformat(),
     }
 
-
 def deserialize_user(data: dict[str, Any]) -> User:
     """dict → User.
     Восстанавливает объект User из словаря ТЗ-формата из JSON
