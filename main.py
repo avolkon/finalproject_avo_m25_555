@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 """Entry point CLI."""
-from pathlib import Path
 
 # Абсолютный импорт из пакета
 from valutatrade_hub.cli.interface import main as cli_main

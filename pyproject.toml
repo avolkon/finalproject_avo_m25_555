@@ -1,9 +1,8 @@
 [tool.poetry]
 name = "finalproject_avo_m25_555"
 version = "0.1.0"
-description = "Платформа для валютного трейдинга (крипто и фиатные валюты) "
+description = "Платформа для валютного трейдинга"
 authors = ["Анастасия Волконская <aavolkon@mail.ru>"]
-readme = "README.md"
 package-mode = true
 
 [tool.poetry.dependencies]
@@ -18,21 +17,8 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-
 project = "main:main"
 
 [tool.ruff]
 line-length = 88
 target-version = "py311"
-exclude = ["venv", ".venv", "dist", "__pycache__"]
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
-ignore = []
-[dependency-groups]
-
-
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
-line-ending = "auto"
