@@ -98,6 +98,19 @@ def buy_cli(currency: str, amount: float) -> None:
     # Вывод обновлённого портфеля в USD
     show_portfolio('USD')
 
+def sell_cli(currency: str, amount: float) -> None:
+    """CLI обработка продажи валюты с выводом портфеля."""
+    # Проверка активной сессии пользователя
+    if CURRENT_USER_ID is None:
+        print("Сначала выполните login")
+        return
+    
+    # Выполнение продажи через бизнес-логику
+    sell_currency(CURRENT_USER_ID, currency, amount)
+    
+    # Вывод обновлённого портфеля в USD
+    show_portfolio('USD')
+
 
 def main(argv: list[str] | None = None) -> None:
     """Главная точка входа CLI."""
