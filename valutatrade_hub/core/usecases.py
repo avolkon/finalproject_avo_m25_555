@@ -5,7 +5,7 @@ import os
 import secrets  # Стандартные библиотеки
 from datetime import datetime        # Парсинг дат ISO
 from typing import Dict, List, Optional, Any  # Типизация
-from .models import User, Portfolio, Wallet  # Импорт моделей
+from .models import User, Portfolio  # Импорт моделей
 from .utils import (
     deserialize_user, serialize_user, load_users, save_users, 
     ensure_data_dir
@@ -49,7 +49,7 @@ def deserialize_portfolio(data: Dict[str, Any], user_id: int) -> Portfolio:
             portfolio.add_currency(currency_code)  # Создаёт кошелёк с balance=0.0
             
             # ПОЛУЧЕНИЕ И ПРОВЕРКА КОШЕЛЬКА
-            wallet = portfolio.get_wallet(currency_code)  # type: Optional[Wallet]
+            wallet = portfolio.get_wallet(currency_code)
             if wallet is None:
                 # ЛОГИРОВАНИЕ КРИТИЧЕСКОЙ ОШИБКИ (невозможное состояние)
                 print(f"🚨 Критическая ошибка: кошелёк {currency_code} создан, но не найден")

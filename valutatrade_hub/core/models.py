@@ -95,7 +95,6 @@
 import hashlib                       # Для хеширования паролей
 from datetime import datetime        # Для дат регистрации
 from typing import Dict, Optional  # Аннотации типов
-from .utils import load_users
 
 
 class User:
