@@ -37,6 +37,17 @@ def create_parser() -> argparse.ArgumentParser:
     show = subparsers.add_parser("show-portfolio")  # Подпарсер для показа портфеля
     show.add_argument("--base", default="USD")  # Опциональный аргумент базовой валюты
 
+    # Сабпарсер для покупки валюты
+    buy = subparsers.add_parser("buy")
+    buy.add_argument("--currency", required=True)  # Код валюты (BTC, EUR)
+    buy.add_argument("--amount", type=float, required=True)  # Сумма покупки
+        
+    # Сабпарсер для продажи валюты
+    sell = subparsers.add_parser("sell")
+    sell.add_argument("--currency", required=True)  # Код продаваемой валюты
+    sell.add_argument("--amount", type=float, required=True)  # Сумма продажи
+
+
     return parser  # Возврат готового парсера
 
 
