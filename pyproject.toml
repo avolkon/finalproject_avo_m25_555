@@ -18,7 +18,8 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-project = "finalproject_avo_m25_555.cli:main"
+
+project = "main:main"
 
 [tool.ruff]
 line-length = 88

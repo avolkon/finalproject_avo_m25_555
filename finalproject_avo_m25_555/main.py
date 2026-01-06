@@ -1,13 +1,16 @@
 #!/usr/bin/env python
-"""Entry point проекта."""
+"""Entry point CLI."""
+from pathlib import Path
 
-import valutatrade_hub.cli.interface as cli
+# Абсолютный импорт из пакета
+from valutatrade_hub.cli.interface import main as cli_main
 
 
-def main():
+def main() -> None:
     """Запуск CLI."""
-    cli.main()
+    cli_main()
 
 
 if __name__ == "__main__":
     main()
+
