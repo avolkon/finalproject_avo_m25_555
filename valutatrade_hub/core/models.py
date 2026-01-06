@@ -95,6 +95,7 @@
 import hashlib                       # Для хеширования паролей
 from datetime import datetime        # Для дат регистрации
 from typing import Dict, Optional  # Аннотации типов
+from .utils import load_users
 
 
 class User:
@@ -206,10 +207,10 @@ class Portfolio:
         return self._user_id             # Возврат приватного значения
 
     @property
-    def user(self) -> 'User':           # Свойство пользователя
+    def user(self) -> Optional['User']:            # Свойство пользователя
         """Связанный пользователь (stub)."""
         from .usecases import load_user  # Импорт функции загрузки
-        return load_user(self._user_id)  # Загрузка по ID
+        return load_user(self._user_id)  # Загрузка по ID # Возвращает User | None
 
     @property
     def wallets(self) -> Dict[str, Wallet]:  # Копия кошельков
