@@ -1,9 +1,11 @@
 [tool.poetry]
-name = "finalproject_avo_m25_555"
+name = "finalproject-avo-m25-555"
 version = "0.1.0"
 description = "Платформа для валютного трейдинга"
 authors = ["Анастасия Волконская <aavolkon@mail.ru>"]
+packages = [{include = "valutatrade_hub"}]  # ← ПАКЕТЫ!
 package-mode = true
+readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -12,12 +14,12 @@ prettytable = "^3.10.0"
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.6.8"
 
+[tool.poetry.scripts]
+project = "main:main"  # ← CLI!
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
-
-[tool.poetry.scripts]
-project = "main:main"
 
 [tool.ruff]
 line-length = 88
