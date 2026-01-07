@@ -47,6 +47,12 @@ def create_parser() -> argparse.ArgumentParser:
     sell.add_argument("--currency", required=True)  # Код продаваемой валюты
     sell.add_argument("--amount", type=float, required=True)  # Сумма продажи
 
+    # Подпарсер получения курса валют (не требует авторизации)
+    rate = subparsers.add_parser("get-rate")
+    rate.add_argument("--from", required=True)  # Исходная валюта (USD)
+    rate.add_argument("--to", required=True)    # Целевая валюта (BTC)
+
+
 
     return parser  # Возврат готового парсера
 
