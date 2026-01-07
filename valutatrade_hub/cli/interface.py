@@ -133,15 +133,33 @@ def sell_cli(currency: str, amount: float) -> None:
     # Вывод обновлённого портфеля в USD
     show_portfolio('USD')
 
-def get_rate_cli(from_currency: str, to_currency: str) -> None:
-    """CLI команда получения курса валют."""
-    # Получение курса через бизнес-логику (без проверки сессии)
-    direct_rate, timestamp, source = get_rate(from_currency, to_currency)
-    # Прямой курс с 8 знаками после запятой
-    print(f"{from_currency}→{to_currency} {direct_rate:.8f} ({timestamp})")
-    # Обратный курс (1/прямой) с источником
-    print(f"{to_currency}→{from_currency} {1/direct_rate:.8f} ({source})")
+# def get_rate_cli(from_currency: str, to_currency: str) -> None:
+#     """CLI команда получения курса валют."""
+#     # Получение курса через бизнес-логику (без проверки сессии)
+#     direct_rate, timestamp, source = get_rate(from_currency, to_currency)
+#     # Прямой курс с 8 знаками после запятой
+#     print(f"{from_currency}→{to_currency} {direct_rate:.8f} ({timestamp})")
+#     # Обратный курс (1/прямой) с источником
+#     print(f"{to_currency}→{from_currency} {1/direct_rate:.8f} ({source})")
 
+def get_rate_cli(from_currency: str, to_currency: str) -> None:
+    """CLI команда получения курса валют с индикатором свежести."""
+    # Получение курса через бизнес-логику (без проверки сессии)
+    direct_rate, timestamp, source, is_fresh = get_rate(from_currency, 
+                                                        to_currency)
+    
+    # Создание индикатора свежести для вывода
+    freshness_indicator = "✓" if is_fresh else "⚠"
+    freshness_text = "Свежий" if is_fresh else "Устарел"
+    
+    # Прямой курс с 8 знаками после запятой и индикатором свежести
+    print(f"{from_currency}→{to_currency} {direct_rate:.8f} "
+          f"({timestamp}) {freshness_indicator} {freshness_text}")
+    
+    # Обратный курс (1/прямой) с источником данных
+    print(f"{to_currency}→{from_currency} {1/direct_rate:.8f} "
+          f"({source})")
+    
 
 def main(argv: list[str] | None = None) -> None:
     """Главная точка входа CLI."""
@@ -187,3 +205,4 @@ def main(argv: list[str] | None = None) -> None:
 
 if __name__ == "__main__":  # Проверка запуска как основного модуля
     main()  # Запуск основной функции
+

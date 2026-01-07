@@ -2,25 +2,11 @@
 
 import json  # Стандартная библиотека для сериализации/десериализации
 import os
-
-# JSON. Преобразует list[dict] ↔ data/users.json
-# Требуется ТЗ: хранение в users.json формате
-# DATA_DIR = Path("data"), USERS_FILE = DATA_DIR / "users.json"
-# .exists(), .mkdir(), .open() — кроссплатформенные операции
-from datetime import datetime
-
-# Используется: salt = secrets.token_hex(4) для уникальной
-# соли каждого пользователя (безопаснее random)
-from pathlib import Path  # Объектно-ориентированный путь к файлам
-
 # Класс datetime для парсинга/сериализации дат регистрации
-# JSON ↔ datetime.fromisoformat(), .isoformat()
+from datetime import datetime
+from pathlib import Path  # Объектно-ориентированный путь к файлам
 from typing import Any
-
-# Type hints для функций JSON utils:
-# load_users() → List[Dict[str, Any]]
-# serialize_user() → Dict[str, Any]
-from .models import User  # Относительный импорт класса User из соседнего модуля
+from valutatrade_hub.core.models import User  
 
 # Требуется для сериализации/десериализации:
 # User → serialize_user() → dict → JSON

@@ -89,6 +89,36 @@ def _initialize_user_portfolio(user_id: int) -> None:
         portfolios.append(portfolio_data)  # ✅ Теперь portfolio_data существует!
         save_portfolios(portfolios)        # Атомарное сохранение
 
+# def register_user(username: str, password: str) -> int:
+#     """Регистрация нового пользователя."""
+#     users = load_users()  # Загрузка текущих пользователей
+    
+#     # Проверка уникальности username (case-insensitive по ТЗ)
+#     username_lower = username.lower()  # Приведение к нижнему регистру для проверки
+#     if any(u["username"].lower() == username_lower for u in users):
+#         raise ValueError(f"Имя '{username}' уже занято")  # Точное сообщение из ТЗ
+    
+#     # Валидация пароля по ТЗ (≥4 символа)
+#     if len(password) < 4:
+#         raise ValueError("Пароль ≥4 символа")  # Точная формулировка ТЗ
+    
+#     # Генерация нового user_id: максимум существующих + 1 (или 1 если пусто)
+#     user_id = max([u["user_id"] for u in users], default=0) + 1  # Инкремент ID
+#     salt = secrets.token_hex(4)  # Криптографически стойкая соль (8 байт в hex)
+    
+#     # Создание объекта User с временным пустым хешем
+#     user = User(user_id, username, "", salt, datetime.now())  # OOP-first подход
+#     user.change_password(password)  # Хеширование пароля: sha256(password + salt)
+    
+#     # Сериализация User → Dict и добавление в список
+#     users.append(serialize_user(user))  # Стандартный сериализатор
+#     save_users(users)  # Атомарное сохранение в users.json
+    
+#     # Создание начального портфеля с USD кошельком
+#     _initialize_user_portfolio(user_id)  # Заменяет _stub_portfolio
+    
+#     return user_id  # Возврат ID нового пользователя для CLI
+
 def register_user(username: str, password: str) -> int:
     """Регистрация нового пользователя."""
     users = load_users()  # Загрузка текущих пользователей
@@ -114,8 +144,9 @@ def register_user(username: str, password: str) -> int:
     users.append(serialize_user(user))  # Стандартный сериализатор
     save_users(users)  # Атомарное сохранение в users.json
     
-    # Создание начального портфеля с USD кошельком
-    _initialize_user_portfolio(user_id)  # Заменяет _stub_portfolio
+    # СОЗДАНИЕ НАЧАЛЬНОГО ПОРТФЕЛЯ С USD КОШЕЛЬКОМ
+    portfolio = create_initial_portfolio(user_id)  # Создание портфеля через фабрику
+    save_portfolio(portfolio)  # Явное сохранение портфеля в файл
     
     return user_id  # Возврат ID нового пользователя для CLI
 
@@ -192,14 +223,32 @@ def load_portfolio(user_id: int) -> Optional[Portfolio]:  # Полная дес�
     return None                      # Отсутствует
 
 
-def get_portfolio(user_id: int) -> Portfolio:  # Автоматическое создание
-    """Получить/создать портфель."""
-    portfolio = load_portfolio(user_id)  # Попытка загрузки
-    if portfolio is None:            # Новый портфель
-        portfolio = Portfolio(user_id)  # Создание
-        portfolio.add_currency('USD')  # Базовый кошелёк. USD по умолчанию
-    return portfolio                 # Объект готов
+# def get_portfolio(user_id: int) -> Portfolio:  # Автоматическое создание
+#     """Получить/создать портфель."""
+#     portfolio = load_portfolio(user_id)  # Попытка загрузки
+#     if portfolio is None:            # Новый портфель
+#         portfolio = Portfolio(user_id)  # Создание
+#         portfolio.add_currency('USD')  # Базовый кошелёк. USD по умолчанию
+#     return portfolio                 # Объект готов
 
+def get_portfolio(user_id: int) -> Portfolio:
+    """
+    Получение портфеля пользователя с автоматическим созданием при отсутствии.
+    Обновленная версия: использует фабрику create_empty_portfolio
+    для устранения дублирования кода создания портфеля с USD.
+    Args:
+        user_id: Уникальный идентификатор пользователя
+    Returns:
+        Portfolio: Существующий или новый портфель с кошельком USD
+    """
+    # Попытка загрузить существующий портфель из хранилища
+    portfolio = load_portfolio(user_id)
+    
+    if portfolio is None:  # Если портфель не найден
+        # Использование фабрики для создания нового портфеля
+        portfolio = create_empty_portfolio(user_id)
+    
+    return portfolio  # Возврат портфеля (нового или загруженного)
 
 def save_portfolio(portfolio: Portfolio) -> None:  # Объект → JSON
     """Сохранение портфеля."""
@@ -214,6 +263,43 @@ def save_portfolio(portfolio: Portfolio) -> None:  # Объект → JSON
             
     portfolios.append(portfolio_data)  # Новый портфель
     save_portfolios(portfolios)      # Финальное сохранение
+
+def create_empty_portfolio(user_id: int) -> Portfolio:
+    """
+    Фабрика для создания пустого портфеля с базовым USD кошельком.
+    Args:
+        user_id: Уникальный идентификатор пользователя
+    Returns:
+        Portfolio: Объект портфеля с кошельком USD
+    Raises:
+        TypeError: Если user_id не является целым числом
+        ValueError: При ошибке добавления валюты (дубликат USD)
+    """
+    if not isinstance(user_id, int):  # Проверка типа user_id
+        raise TypeError("user_id должен быть целым числом")
+    
+    portfolio = Portfolio(user_id)     # Создание объекта портфеля
+    portfolio.add_currency('USD')      # Добавление базовой валюты USD
+    
+    return portfolio                   # Возврат готового портфеля
+
+def create_initial_portfolio(user_id: int) -> Portfolio:
+    """
+    Создание начального портфеля для нового пользователя.
+    Заменяет старую _initialize_user_portfolio, убирая side effects.
+    Использует фабрику create_empty_portfolio для создания портфеля.
+    Args:
+        user_id: Уникальный идентификатор пользователя
+    Returns:
+        Portfolio: Объект портфеля с кошельком USD
+    Raises:
+        TypeError: Если user_id не является целым числом
+        ValueError: При ошибке создания портфеля или добавления USD
+    """
+    # Использование фабричной функции для создания портфеля
+    portfolio = create_empty_portfolio(user_id)
+    
+    return portfolio  # Возврат созданного портфеля без сохранения
 
 def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
     """Покупка валюты за USD."""
@@ -334,25 +420,290 @@ def sell_currency(user_id: int, currency_code: str, amount: float) -> None:
     # Сохранение обновлённого портфеля
     save_portfolio(portfolio)
 
-def get_rate(from_currency: str, to_currency: str) -> tuple[float, str, str]:
-    """Получение курса валюты с приоритетом rates.json."""
+# def get_rate(from_currency: str, to_currency: str) -> tuple[float, str, str]:
+#     """Получение курса валюты с приоритетом rates.json."""
+#     # Загрузка курсов из JSON или пустой словарь
+#     rates = load_rates()
+#     # Нормализация кодов валют в верхний регистр
+#     from_code = from_currency.upper()
+#     to_code = to_currency.upper()
+#     # Проверка поддержки обеих валют в EXCHANGE_RATES
+#     if (from_code not in Portfolio.EXCHANGE_RATES or
+#             to_code not in Portfolio.EXCHANGE_RATES):
+#         raise ValueError("Валюта не поддерживается")
+#     # Формирование ключа пары (EUR_USD)
+#     pair = f"{from_code}_{to_code}"
+#     # Поиск прямого курса в rates.json с fallback
+#     rate_data = rates.get(pair, {})
+#     direct_rate = (rate_data.get("rate", 
+#                 Portfolio.EXCHANGE_RATES[from_code]))
+#     # Время обновления или заглушка
+#     timestamp = rate_data.get("updated_at", "N/A")
+#     # Источник: JSON или статический fallback
+#     source = "rates.json" if pair in rates else "Fallback"
+#     return (direct_rate, timestamp, source)  # Кортеж для CLI
+
+def get_rate(from_currency: str, to_currency: str) -> tuple[float, str, str, bool]:
+    """
+    Получение курса валюты с проверкой свежести данных.
+    Args:
+        from_currency: Исходная валюта (например, "USD")
+        to_currency: Целевая валюта (например, "BTC")
+    Returns:
+        tuple: (курс, timestamp, источник, is_fresh)
+        - float: Прямой курс обмена
+        - str: Время обновления или "N/A"
+        - str: Источник данных ("rates.json" или "Fallback")
+        - bool: True если курс свежий, False если устарел
+    """
     # Загрузка курсов из JSON или пустой словарь
     rates = load_rates()
+    
     # Нормализация кодов валют в верхний регистр
     from_code = from_currency.upper()
     to_code = to_currency.upper()
+    
     # Проверка поддержки обеих валют в EXCHANGE_RATES
     if (from_code not in Portfolio.EXCHANGE_RATES or
             to_code not in Portfolio.EXCHANGE_RATES):
         raise ValueError("Валюта не поддерживается")
+    
     # Формирование ключа пары (EUR_USD)
     pair = f"{from_code}_{to_code}"
-    # Поиск прямого курса в rates.json с fallback
+    
+    # Поиск данных в rates.json
     rate_data = rates.get(pair, {})
-    direct_rate = (rate_data.get("rate", 
-                Portfolio.EXCHANGE_RATES[from_code]))
-    # Время обновления или заглушка
     timestamp = rate_data.get("updated_at", "N/A")
-    # Источник: JSON или статический fallback
-    source = "rates.json" if pair in rates else "Fallback"
-    return (direct_rate, timestamp, source)  # Кортеж для CLI
+    
+    # Проверка наличия и свежести курса в rates.json
+    has_rate_in_json = pair in rates
+    is_fresh = False
+    direct_rate: float  # Явная аннотация типа для mypy
+    
+    if has_rate_in_json and timestamp != "N/A":
+        # Проверка свежести курса через вспомогательную функцию
+        is_fresh = is_rate_fresh(pair, timestamp)
+    
+    # Выбор курса: свежий из JSON или fallback
+    if has_rate_in_json and is_fresh:
+        # Явное приведение типа, получение курса из JSON
+        rate_value = rate_data.get("rate")
+        if rate_value is None:
+            # Если в JSON нет rate, используем fallback
+            direct_rate = (Portfolio.EXCHANGE_RATES[to_code] / 
+                          Portfolio.EXCHANGE_RATES[from_code])
+            source = "Fallback"
+            timestamp = "N/A"
+            is_fresh = False
+        else:
+            # Явное преобразование в float
+            direct_rate = float(rate_value)
+            source = "rates.json"
+    else:
+        # Fallback на статические курсы
+        direct_rate = (Portfolio.EXCHANGE_RATES[to_code] / 
+                      Portfolio.EXCHANGE_RATES[from_code])
+        source = "Fallback"
+        timestamp = "N/A"  # Для fallback нет timestamp
+        is_fresh = False   # Fallback всегда считается устаревшим
+    
+    return (direct_rate, timestamp, source, is_fresh)
+
+def generate_test_rates(test_scenario: str = "mixed") -> None:
+    """
+    Генератор тестовых данных для rates.json с разными временными метками.
+    
+    ВНИМАНИЕ: Только для тестирования! Перезаписывает production rates.json.
+    
+    Args:
+        test_scenario: Сценарий генерации данных:
+            - "all_fresh": Все курсы свежие (< 5 минут/24 часа)
+            - "all_stale": Все курсы устаревшие (> лимита свежести)
+            - "mixed": Смешанные данные (часть свежие, часть устаревшие)
+            - "invalid": Некорректные форматы timestamp
+            - "empty": Пустой rates.json
+    
+    Returns:
+        None: Сохраняет данные в data/rates.json
+    """
+    from datetime import datetime, timedelta
+    
+    # Базовые валютные пары для тестирования
+    currency_pairs = ["EUR_USD", "BTC_USD", "RUB_USD", "ETH_USD", "BTC_EUR"]
+    
+    # Инициализация словаря для rates.json
+    test_rates = {}
+    current_time = datetime.now()
+    
+    # Генерация timestamp для каждого сценария
+    if test_scenario == "all_fresh":
+        # Все курсы свежие (обновлены 1 минуту назад)
+        timestamp = current_time - timedelta(minutes=1)
+        for pair in currency_pairs:
+            test_rates[pair] = {
+                "rate": _generate_realistic_rate(pair),
+                "updated_at": timestamp.isoformat()
+            }
+    
+    elif test_scenario == "all_stale":
+        # Все курсы устаревшие (обновлены 2 дня назад)
+        timestamp = current_time - timedelta(days=2)
+        for pair in currency_pairs:
+            test_rates[pair] = {
+                "rate": _generate_realistic_rate(pair),
+                "updated_at": timestamp.isoformat()
+            }
+    
+    elif test_scenario == "mixed":
+        # Смешанные данные: 2 свежих, 3 устаревших
+        fresh_time = current_time - timedelta(minutes=1)
+        stale_time = current_time - timedelta(days=2)
+        
+        for i, pair in enumerate(currency_pairs):
+            timestamp = fresh_time if i < 2 else stale_time
+            test_rates[pair] = {
+                "rate": _generate_realistic_rate(pair),
+                "updated_at": timestamp.isoformat()
+            }
+    
+    elif test_scenario == "invalid":
+        # Некорректные форматы timestamp для тестирования обработки ошибок
+        for pair in currency_pairs:
+            test_rates[pair] = {
+                "rate": _generate_realistic_rate(pair),
+                "updated_at": "2025-13-45T99:99:99"  # Некорректный формат
+            }
+    
+    elif test_scenario == "empty":
+        # Пустой файл rates.json
+        test_rates = {}
+    
+    else:
+        raise ValueError(f"Неизвестный сценарий: {test_scenario}")
+    
+    # Добавление метаданных для идентификации тестовых данных
+    if test_scenario != "empty":
+        test_rates["source"] = "TestDataGenerator"
+        test_rates["last_refresh"] = current_time.isoformat()
+        test_rates["test_scenario"] = test_scenario
+    
+    # Сохранение данных в rates.json
+    _save_rates_to_file(test_rates)
+
+
+def _generate_realistic_rate(currency_pair: str) -> float:
+    """
+    Генерация реалистичного курса валюты на основе Portfolio.EXCHANGE_RATES.
+    
+    Args:
+        currency_pair: Валютная пара в формате "EUR_USD"
+        
+    Returns:
+        float: Реалистичный курс обмена
+    """
+    from .models import Portfolio  # Отложенный импорт
+    
+    try:
+        # Парсинг валютной пары
+        from_curr, to_curr = currency_pair.split("_")
+        
+        # Получение курсов из статических данных
+        from_rate = Portfolio.EXCHANGE_RATES.get(from_curr, 1.0)
+        to_rate = Portfolio.EXCHANGE_RATES.get(to_curr, 1.0)
+        
+        # Расчет курса: to_currency / from_currency
+        if from_rate == 0:
+            return 0.0  # Защита от деления на ноль
+        return to_rate / from_rate
+    
+    except (ValueError, KeyError):
+        # Fallback: случайный реалистичный курс
+        import random
+        return round(random.uniform(0.5, 2.5), 4)
+
+
+def _save_rates_to_file(rates_data: dict) -> None:
+    """
+    Сохранение данных курсов в rates.json.
+    
+    Args:
+        rates_data: Словарь с данными курсов
+    """
+    import json
+    import os
+    from pathlib import Path
+    
+    # Создание директории data если не существует
+    data_dir = Path("data")
+    data_dir.mkdir(exist_ok=True)
+    
+    # Полный путь к файлу rates.json
+    rates_file = data_dir / "rates.json"
+    
+    try:
+        # Сохранение данных в JSON с форматированием
+        with open(rates_file, 'w', encoding='utf-8') as f:
+            json.dump(rates_data, f, indent=2, ensure_ascii=False)
+        
+        print(f"✅ Тестовые данные сохранены в {rates_file}")
+        print(f"   Сценарий: {rates_data.get('test_scenario', 'N/A')}")
+        print(f"   Записей курсов: {len([k for k in rates_data.keys() 
+                                      if not k.startswith('_')])}")
+    
+    except Exception as e:
+        print(f"❌ Ошибка сохранения rates.json: {e}")
+        raise
+
+def is_rate_fresh(currency_pair: str, timestamp: str) -> bool:
+    """
+    Проверка актуальности курса валюты по времени обновления.
+    
+    Args:
+        currency_pair: Валютная пара в формате "EUR_USD"
+        timestamp: Время обновления в ISO формате "2025-10-09T10:30:00"
+        
+    Returns:
+        bool: True если курс свежий, False если устарел
+        
+    Notes:
+        - Фиатные валюты (USD, EUR, RUB): считаются свежими 24 часа
+        - Криптовалюты (BTC, ETH): считаются свежими 5 минут
+        - Остальные валюты: считаются свежими 30 минут
+    """
+    from datetime import datetime, timedelta  # Импорт внутри функции
+    
+    if "_" not in currency_pair:  # Проверка формата валютной пары
+        return False  # Некорректный формат → считаем устаревшим
+    
+    try:
+        # Парсинг timestamp из строки ISO формата
+        update_time = datetime.fromisoformat(timestamp)
+    except (ValueError, TypeError):
+        return False  # Некорректный timestamp → считаем устаревшим
+    
+    # Определение валюты из пары (первая часть до "_")
+    base_currency = currency_pair.split("_")[0].upper()
+    
+    # Константы времени свежести для разных типов валют
+    FIAT_CURRENCIES = {"USD", "EUR", "RUB"}  # Фиатные валюты
+    CRYPTO_CURRENCIES = {"BTC", "ETH"}       # Криптовалюты
+    
+    FIAT_FRESHNESS = timedelta(hours=24)     # 24 часа для фиата
+    CRYPTO_FRESHNESS = timedelta(minutes=5)  # 5 минут для крипто
+    DEFAULT_FRESHNESS = timedelta(minutes=30)  # 30 минут по умолчанию
+    
+    # Выбор лимита свежести в зависимости от типа валюты
+    if base_currency in FIAT_CURRENCIES:
+        freshness_limit = FIAT_FRESHNESS
+    elif base_currency in CRYPTO_CURRENCIES:
+        freshness_limit = CRYPTO_FRESHNESS
+    else:
+        freshness_limit = DEFAULT_FRESHNESS
+    
+    # Расчет времени, прошедшего с обновления
+    time_since_update = datetime.now() - update_time
+    
+    # Проверка, не устарел ли курс
+    return time_since_update <= freshness_limit
+
+
