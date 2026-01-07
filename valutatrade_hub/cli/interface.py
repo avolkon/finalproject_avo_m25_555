@@ -123,26 +123,19 @@ def buy_cli(currency: str, amount: float) -> None:
         # 3. Выполняем покупку (основная бизнес-логика)
         buy_currency(CURRENT_USER_ID, currency, amount)
         
-        # 4. Загружаем портфель ДЛЯ ПОЛУЧЕНИЯ БАЛАНСА "СТАЛО"
-        portfolio_after = get_portfolio(CURRENT_USER_ID)
-        wallet_after = portfolio_after.get_wallet(currency)
-        # Баланс после операции = balance_before + amount
-        balance_after = balance_before + amount
-        
-        # 5. Расчет стоимости покупки в USD
+        # 4. Расчет стоимости покупки в USD
         cost_usd = amount * rate
         
-        # 6. Вывод деталей операции по ТЗ (точный формат из примера)
+        # 5. Вывод деталей операции по ТЗ (точный формат из примера)
         print(f"Покупка выполнена: {amount:.4f} {currency} по курсу {rate:.2f} USD/{currency}")
         print("Изменения в портфеле:")
-        print(f"- {currency}: было {balance_before:.4f} → стало {balance_after:.4f}")
+        print(f"- {currency}: было {balance_before:.4f} → стало {balance_before + amount:.4f}")
         print(f"Оценочная стоимость покупки: {cost_usd:,.2f} USD")
         
-        # 7. Вывод обновленного портфеля (существующий функционал)
+        # 6. Вывод обновленного портфеля (существующий функционал)
         show_portfolio('USD')
         
     except ValueError as e:
-        # Сохраняем существующую обработку ошибок
         print(f"Ошибка ввода: {e}")
         sys.exit(1)
     except Exception as e:
@@ -204,7 +197,7 @@ def sell_cli(currency: str, amount: float) -> None:
     except Exception as e:
         print(f"Критическая ошибка: {e}")
         sys.exit(1)
-            
+
     # Выполнение продажи через бизнес-логику
     sell_currency(CURRENT_USER_ID, currency, amount)
     
