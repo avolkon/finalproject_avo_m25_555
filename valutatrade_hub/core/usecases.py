@@ -519,7 +519,6 @@ def _save_rates_to_file(rates_data: dict) -> None:
         rates_data: Словарь с данными курсов
     """
     import json
-    import os
     from pathlib import Path
     
     # Создание директории data если не существует

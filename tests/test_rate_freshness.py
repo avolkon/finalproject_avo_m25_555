@@ -189,7 +189,7 @@ class TestRateFreshness(unittest.TestCase):
         # ОЖИДАЕМОЕ ПОВЕДЕНИЕ: устаревшие данные → Fallback
         # BTC устарел (2 дня > 5 минут) → должен использовать fallback
         
-        print(f"\n[DEBUG] test_get_rate_with_stale_data:")
+        print("\n[DEBUG] test_get_rate_with_stale_data:")
         print(f"  Timestamp в тесте: {stale_time}")
         print(f"  Получено: rate={rate}, source={source}, is_fresh={is_fresh}")
         

@@ -148,17 +148,63 @@ def buy_cli(currency: str, amount: float) -> None:
     except Exception as e:
         print(f"Критическая ошибка: {e}")
         sys.exit(1)
-        
+
 def sell_cli(currency: str, amount: float) -> None:
-    """CLI обработка продажи валюты с выводом портфеля."""
+    """CLI обработка продажи валюты с детализированным выводом по ТЗ УЗ 222."""
     
-    require_login()  # Проверка сессии через утилиту
+    require_login()  # Проверка сессии
     
-    # Проверка активной сессии пользователя
     if CURRENT_USER_ID is None:
         print("Сначала выполните login")
         return
     
+    try:
+        # 1. Загружаем портфель ДЛЯ ПРОВЕРКИ КОШЕЛЬКА И БАЛАНСА
+        portfolio_before = get_portfolio(CURRENT_USER_ID)
+        wallet_before = portfolio_before.get_wallet(currency)
+        
+        # 2. Проверка кошелька (новая валидация по ТЗ)
+        if wallet_before is None:
+            raise ValueError(
+                f"У вас нет кошелька '{currency}'. "
+                f"Добавьте валюту: она создаётся автоматически при первой покупке."
+            )
+        
+        balance_before = wallet_before.balance
+        
+        # 3. Проверка достаточности средств (новая валидация по ТЗ)
+        if balance_before < amount:
+            raise ValueError(
+                f"Недостаточно средств: доступно {balance_before:.4f} {currency}, "
+                f"требуется {amount:.4f} {currency}"
+            )
+        
+        # 4. Получаем курс для расчета выручки
+        rate_tuple = get_rate(currency, "USD")
+        rate = rate_tuple[0]  # курс currency→USD
+        
+        # 5. Выполняем продажу (основная бизнес-логика)
+        sell_currency(CURRENT_USER_ID, currency, amount)
+        
+        # 6. Расчет выручки в USD
+        revenue_usd = amount * rate
+        
+        # 7. Вывод деталей операции по ТЗ
+        print(f"Продажа выполнена: {amount:.4f} {currency} по курсу {rate:.2f} USD/{currency}")
+        print("Изменения в портфеле:")
+        print(f"- {currency}: было {balance_before:.4f} → стало {balance_before - amount:.4f}")
+        print(f"Оценочная выручка: {revenue_usd:,.2f} USD")
+        
+        # 8. Вывод обновленного портфеля (существующий функционал)
+        show_portfolio('USD')
+        
+    except ValueError as e:
+        print(f"Ошибка ввода: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Критическая ошибка: {e}")
+        sys.exit(1)
+            
     # Выполнение продажи через бизнес-логику
     sell_currency(CURRENT_USER_ID, currency, amount)
     
