@@ -16,7 +16,8 @@ from .utils import (
 DATA_DIR = "data"                    # Директория данных
 USERS_FILE = os.path.join(DATA_DIR, "users.json")  # Путь к пользователям
 PORTFOLIOS_FILE = os.path.join(DATA_DIR, "portfolios.json")  # Путь к портфелям
-
+# Константа пути к файлу курсов валют
+RATES_FILE = os.path.join(DATA_DIR, "rates.json")
 CURRENT_USER_ID: Optional[int] = None  # Глобальная сессия пользователя
 
 def serialize_portfolio(portfolio: Portfolio) -> Dict:  # Сериализация → JSON
