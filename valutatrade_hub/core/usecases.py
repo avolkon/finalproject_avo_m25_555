@@ -7,7 +7,7 @@ from datetime import datetime        # Парсинг дат ISO
 from typing import Dict, List, Optional, Any  # Типизация
 from .models import User, Portfolio  # Импорт моделей
 from .utils import (
-    deserialize_user, serialize_user, load_users, save_users, 
+    deserialize_user, serialize_user, load_users, load_rates, save_users, 
     ensure_data_dir
 )
 
@@ -216,54 +216,78 @@ def save_portfolio(portfolio: Portfolio) -> None:  # Объект → JSON
     save_portfolios(portfolios)      # Финальное сохранение
 
 def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
-    """Покупка валюты: списать USD, начислить целевую валюту."""
-    # Загрузка портфеля текущего пользователя
-    portfolio = get_portfolio(user_id)
-    
-    # Нормализация кода валюты в верхний регистр
-    currency_code = currency_code.upper()
-    
-    # Валидация: сумма должна быть положительной
+    """Покупка валюты за USD."""
+    portfolio = get_portfolio(user_id)  # Загрузка портфеля пользователя
+    currency_code = currency_code.upper()  # Нормализация кода валюты
     if amount <= 0:
         raise ValueError("Сумма должна быть положительной")
-    
-    # Валидация: валюта поддерживается и не USD
-    if (currency_code not in Portfolio.EXCHANGE_RATES or 
-        currency_code == 'USD'):
-        raise ValueError("Валюта не поддерживается")
-    
-    # Получение USD кошелька (гарантировано get_portfolio)
-    usd_wallet = portfolio.get_wallet('USD')
-    # Защита от None (mypy strict)
-    # Вместо assert можно:
-    if usd_wallet is None:
-        raise ValueError("Критическая ошибка: USD кошелёк отсутствует")
-        # Создание целевого кошелька если не существует
-    
-    if portfolio.get_wallet(currency_code) is None:
-        portfolio.add_currency(currency_code)
-    
-    # Расчёт стоимости покупки в USD
-    usd_cost = amount * Portfolio.EXCHANGE_RATES[currency_code]
-    
-    # Проверка достаточности USD баланса
-    if usd_wallet.balance < usd_cost:
-        raise ValueError("Недостаточно USD")
-    
-    # Списание USD за покупку
-    usd_wallet.withdraw(usd_cost)
-    
-    # Получение целевого кошелька ПОСЛЕ создания
+    if (currency_code not in Portfolio.EXCHANGE_RATES or
+            currency_code == "USD"):
+        raise ValueError("Неизвестная валюта или нельзя купить USD")
+    usd_wallet = portfolio.get_wallet("USD")  # Гарантированно существует
+    assert usd_wallet is not None
     target_wallet = portfolio.get_wallet(currency_code)
-    # Защита от None (логическая ошибка если add_currency не сработал)
     if target_wallet is None:
-        raise ValueError("Критическая ошибка: создание кошелька")
+        portfolio.add_currency(currency_code)  # Создание кошелька если отсутствует
+        target_wallet = portfolio.get_wallet(currency_code)
+    assert target_wallet is not None
+    usd_cost = amount * Portfolio.EXCHANGE_RATES[currency_code]  # Стоимость в USD
+    if usd_wallet.balance < usd_cost:
+        raise ValueError("Недостаточно USD на балансе")
+    usd_wallet.withdraw(usd_cost)  # Списание USD
+    target_wallet.deposit(amount)  # Зачисление целевой валюты
+    save_portfolio(portfolio)  # Сохранение обновленного портфеля
 
-    # Начисление купленной валюты
-    target_wallet.deposit(amount)
+
+# def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
+#     """Покупка валюты: списать USD, начислить целевую валюту."""
+#     # Загрузка портфеля текущего пользователя
+#     portfolio = get_portfolio(user_id)
     
-    # Сохранение обновлённого портфеля
-    save_portfolio(portfolio)
+#     # Нормализация кода валюты в верхний регистр
+#     currency_code = currency_code.upper()
+    
+#     # Валидация: сумма должна быть положительной
+#     if amount <= 0:
+#         raise ValueError("Сумма должна быть положительной")
+    
+#     # Валидация: валюта поддерживается и не USD
+#     if (currency_code not in Portfolio.EXCHANGE_RATES or 
+#         currency_code == 'USD'):
+#         raise ValueError("Валюта не поддерживается")
+    
+#     # Получение USD кошелька (гарантировано get_portfolio)
+#     usd_wallet = portfolio.get_wallet('USD')
+#     # Защита от None (mypy strict)
+#     # Вместо assert можно:
+#     if usd_wallet is None:
+#         raise ValueError("Критическая ошибка: USD кошелёк отсутствует")
+#         # Создание целевого кошелька если не существует
+    
+#     if portfolio.get_wallet(currency_code) is None:
+#         portfolio.add_currency(currency_code)
+    
+#     # Расчёт стоимости покупки в USD
+#     usd_cost = amount * Portfolio.EXCHANGE_RATES[currency_code]
+    
+#     # Проверка достаточности USD баланса
+#     if usd_wallet.balance < usd_cost:
+#         raise ValueError("Недостаточно USD")
+    
+#     # Списание USD за покупку
+#     usd_wallet.withdraw(usd_cost)
+    
+#     # Получение целевого кошелька ПОСЛЕ создания
+#     target_wallet = portfolio.get_wallet(currency_code)
+#     # Защита от None (логическая ошибка если add_currency не сработал)
+#     if target_wallet is None:
+#         raise ValueError("Критическая ошибка: создание кошелька")
+
+#     # Начисление купленной валюты
+#     target_wallet.deposit(amount)
+    
+#     # Сохранение обновлённого портфеля
+#     save_portfolio(portfolio)
 
 def sell_currency(user_id: int, currency_code: str, amount: float) -> None:
     """Продажа валюты: списать целевую, начислить USD."""
@@ -309,3 +333,26 @@ def sell_currency(user_id: int, currency_code: str, amount: float) -> None:
     
     # Сохранение обновлённого портфеля
     save_portfolio(portfolio)
+
+def get_rate(from_currency: str, to_currency: str) -> tuple[float, str, str]:
+    """Получение курса валюты с приоритетом rates.json."""
+    # Загрузка курсов из JSON или пустой словарь
+    rates = load_rates()
+    # Нормализация кодов валют в верхний регистр
+    from_code = from_currency.upper()
+    to_code = to_currency.upper()
+    # Проверка поддержки обеих валют в EXCHANGE_RATES
+    if (from_code not in Portfolio.EXCHANGE_RATES or
+            to_code not in Portfolio.EXCHANGE_RATES):
+        raise ValueError("Валюта не поддерживается")
+    # Формирование ключа пары (EUR_USD)
+    pair = f"{from_code}_{to_code}"
+    # Поиск прямого курса в rates.json с fallback
+    rate_data = rates.get(pair, {})
+    direct_rate = (rate_data.get("rate", 
+                Portfolio.EXCHANGE_RATES[from_code]))
+    # Время обновления или заглушка
+    timestamp = rate_data.get("updated_at", "N/A")
+    # Источник: JSON или статический fallback
+    source = "rates.json" if pair in rates else "Fallback"
+    return (direct_rate, timestamp, source)  # Кортеж для CLI

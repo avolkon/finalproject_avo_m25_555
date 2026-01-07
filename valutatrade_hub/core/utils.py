@@ -1,6 +1,7 @@
 """Утилиты JSON: атомарное сохранение."""
 
 import json  # Стандартная библиотека для сериализации/десериализации
+import os
 
 # JSON. Преобразует list[dict] ↔ data/users.json
 # Требуется ТЗ: хранение в users.json формате
@@ -104,3 +105,23 @@ def deserialize_user(data: dict[str, Any]) -> User:
         data["salt"],
         datetime.fromisoformat(data["registration_date"]),
     )
+
+def load_rates() -> dict[str, dict[str, Any]]:
+    """Загрузка курсов валют из rates.json."""
+    # Гарантия наличия директории data
+    ensure_data_dir()
+    # Константа пути к rates.json (аналогично USERS_FILE)
+    rates_file = os.path.join("data", "rates.json")
+    # Проверка существования файла курсов
+    if not os.path.exists(rates_file):
+        return {}  # Пустой словарь при отсутствии файла
+    try:
+        # Открытие файла rates.json в режиме чтения
+        with open(rates_file, "r", encoding="utf-8") as f:
+            # Парсинг JSON → dict пар типа "EUR_USD": {"rate": float, "updated_at": str}
+            return json.load(f)
+    except (json.JSONDecodeError, KeyError) as e:
+        # Некорректный JSON или структура → пустой fallback
+        print(f"Предупреждение: повреждён rates.json: {e}")
+        return {}  # Безопасный fallback без EXCHANGE_RATES
+
