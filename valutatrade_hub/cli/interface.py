@@ -102,21 +102,53 @@ def require_login() -> None:
         sys.exit(1)   # Happy path: пользователь авторизован, продолжаем
 
 def buy_cli(currency: str, amount: float) -> None:
-    """CLI обработка покупки валюты с выводом портфеля."""
+    """CLI обработка покупки валюты с детализированным выводом по ТЗ УЗ 222."""
     
-    require_login()  # Проверка сессии через утилиту
+    require_login()  # Проверка сессии
     
-    # Проверка активной сессии пользователя
     if CURRENT_USER_ID is None:
         print("Сначала выполните login")
         return
     
-    # Выполнение покупки через бизнес-логику
-    buy_currency(CURRENT_USER_ID, currency, amount)
-    
-    # Вывод обновлённого портфеля в USD
-    show_portfolio('USD')
-
+    try:
+        # 1. Загружаем портфель ДЛЯ ПОЛУЧЕНИЯ БАЛАНСА "БЫЛО"
+        portfolio_before = get_portfolio(CURRENT_USER_ID)
+        wallet_before = portfolio_before.get_wallet(currency)
+        balance_before = wallet_before.balance if wallet_before else 0.0
+        
+        # 2. Получаем курс для расчета стоимости
+        rate_tuple = get_rate("USD", currency)
+        rate = rate_tuple[0]  # курс USD→currency
+        
+        # 3. Выполняем покупку (основная бизнес-логика)
+        buy_currency(CURRENT_USER_ID, currency, amount)
+        
+        # 4. Загружаем портфель ДЛЯ ПОЛУЧЕНИЯ БАЛАНСА "СТАЛО"
+        portfolio_after = get_portfolio(CURRENT_USER_ID)
+        wallet_after = portfolio_after.get_wallet(currency)
+        # Баланс после операции = balance_before + amount
+        balance_after = balance_before + amount
+        
+        # 5. Расчет стоимости покупки в USD
+        cost_usd = amount * rate
+        
+        # 6. Вывод деталей операции по ТЗ (точный формат из примера)
+        print(f"Покупка выполнена: {amount:.4f} {currency} по курсу {rate:.2f} USD/{currency}")
+        print("Изменения в портфеле:")
+        print(f"- {currency}: было {balance_before:.4f} → стало {balance_after:.4f}")
+        print(f"Оценочная стоимость покупки: {cost_usd:,.2f} USD")
+        
+        # 7. Вывод обновленного портфеля (существующий функционал)
+        show_portfolio('USD')
+        
+    except ValueError as e:
+        # Сохраняем существующую обработку ошибок
+        print(f"Ошибка ввода: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Критическая ошибка: {e}")
+        sys.exit(1)
+        
 def sell_cli(currency: str, amount: float) -> None:
     """CLI обработка продажи валюты с выводом портфеля."""
     
