@@ -157,8 +157,11 @@ def main(argv: list[str] | None = None) -> None:
     
     try:  # Блок обработки исключений
         if args.command == "register":  # Обработка команды регистрации
-            uid = register_user(args.username, args.password)  # Вызов регистрации
-            print(f"Пользователь '{args.username}' зарегистрирован (id={uid})")  # Успешное сообщение
+            uid = register_user(args.username, args.password)  # Регистрация возвращает userid
+            # Вывод сообщения об успешной регистрации
+            print(f"Пользователь '{args.username}' зарегистрирован (id={uid}). "
+                f"Войдите: login --username {args.username} --password ****")
+
         
         elif args.command == "login":  # Обработка команды входа
             login_user(args.username, args.password)  # Вызов функции входа
