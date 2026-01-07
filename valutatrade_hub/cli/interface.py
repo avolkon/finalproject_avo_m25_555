@@ -13,7 +13,8 @@ from valutatrade_hub.core.usecases import (  # Импорт бизнес-лог�
     get_portfolio,                         # Функция получения портфеля
     load_user,                             # Функция загрузки пользователя по ID
     buy_currency,
-    sell_currency
+    sell_currency,
+    get_rate
 )
 from valutatrade_hub.core.models import Portfolio  # Импорт модели портфеля
 
@@ -131,6 +132,16 @@ def sell_cli(currency: str, amount: float) -> None:
     
     # Вывод обновлённого портфеля в USD
     show_portfolio('USD')
+
+def get_rate_cli(from_currency: str, to_currency: str) -> None:
+    """CLI команда получения курса валют."""
+    # Получение курса через бизнес-логику (без проверки сессии)
+    direct_rate, timestamp, source = get_rate(from_currency, to_currency)
+    # Прямой курс с 8 знаками после запятой
+    print(f"{from_currency}→{to_currency} {direct_rate:.8f} ({timestamp})")
+    # Обратный курс (1/прямой) с источником
+    print(f"{to_currency}→{from_currency} {1/direct_rate:.8f} ({source})")
+
 
 def main(argv: list[str] | None = None) -> None:
     """Главная точка входа CLI."""
