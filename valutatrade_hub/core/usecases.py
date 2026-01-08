@@ -14,6 +14,8 @@ from .exceptions import InsufficientFundsError
 # Импорт инфраструктурных компонентов
 from ..infra.settings import SettingsLoader
 from ..infra.database import DatabaseManager
+# Импорт декоратора для логирования операций
+from ..decorators import log_action
 
 # Создание глобальных экземпляров синглтонов
 _settings = SettingsLoader()
@@ -104,8 +106,13 @@ def _initialize_user_portfolio(user_id: int) -> None:
         _save_portfolios_to_db(portfolios)  # Атомарное сохранение через DatabaseManager
 
 
+@log_action(action='REGISTER')
 def register_user(username: str, password: str) -> int:
-    """Регистрация нового пользователя."""
+    """Регистрация нового пользователя.
+    Note:
+        Декорирован @log_action для автоматического логирования операции регистрации.
+        Пароль пользователя не попадает в логи (скрывается декоратором).
+    """
     # users = load_users()  # Загрузка текущих пользователей
     users = _db.load_users()  # Загрузка текущих пользователей через DatabaseManager
 
@@ -137,11 +144,20 @@ def register_user(username: str, password: str) -> int:
     
     return user_id  # Возврат ID нового пользователя для CLI
 
+@log_action(action='LOGIN')
 def login_user(username: str, password: str) -> None:
-    """Авторизация пользователя."""
-    # users = load_users()  # Все пользователи из JSON
-    users = _db.load_users()  # Все пользователи из JSON через DatabaseManager
-
+    """Авторизация пользователя.
+    Args:
+        username: Имя пользователя для входа
+        password: Пароль пользователя для проверки
+    Raises:
+        ValueError: Если пользователь не найден или пароль неверный
+    Note:
+        Декорирован @log_action для автоматического логирования операции входа.
+        Пароль пользователя не попадает в логи (скрывается декоратором).
+    """
+    users = _db.load_users()  # Все пользователи из JSON
+    
     for user_data in users:  # Перебор всех записей пользователей
         if user_data["username"].lower() == username.lower():  # Case-insensitive поиск
             user = deserialize_user(user_data)  # Dict → User объект (OOP паттерн)
@@ -149,13 +165,12 @@ def login_user(username: str, password: str) -> None:
             if user.verify_password(password):  # Проверка хеша пароля
                 global CURRENT_USER_ID  # Модификация глобальной сессии
                 CURRENT_USER_ID = user.user_id  # Установка текущего пользователя
-                print(f"Вы вошли как '{username}'")  # Точный формат вывода ТЗ
-                # Из объекта (consistent)
+                print(f"Вы вошли как '{username}'") # Из объекта (consistent)
                 return  # Успешный ранний возврат
             
-            raise ValueError("Неверный пароль")  # Точное сообщение ТЗ
+            raise ValueError("Неверный пароль")  
     
-    raise ValueError("Пользователь не найден")  # Точное сообщение ТЗ
+    raise ValueError("Пользователь не найден")
 
 
 def get_current_user() -> User | None:
@@ -295,6 +310,7 @@ def create_initial_portfolio(user_id: int) -> Portfolio:
     
     return portfolio  # Возврат созданного портфеля без сохранения
 
+@log_action(action='BUY', verbose=True)
 def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
     """Покупка валюты за USD.
     Args:
@@ -305,6 +321,9 @@ def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
         ValueError: При некорректных параметрах
         CurrencyNotFoundError: Если валюта не поддерживается
         InsufficientFundsError: Если недостаточно USD на балансе
+    Note:
+        Декорирован @log_action для автоматического логирования операции.
+        В verbose режиме логируется дополнительная информация и время выполнения.
     """
     # Загрузка портфеля пользователя
     portfolio = get_portfolio(user_id)
@@ -364,16 +383,20 @@ def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
     save_portfolio(portfolio)
 
 
+@log_action(action='SELL', verbose=True)
 def sell_currency(user_id: int, currency_code: str, amount: float) -> None:
     """Продажа валюты: списать целевую, начислить USD.
     Args:
         user_id: Идентификатор пользователя
         currency_code: Код продаваемой валюты
-        amount: Сумма продажи в целевой валюте
+        amount: Сумма продажи в целевой валюте 
     Raises:
         ValueError: При некорректных параметрах
         CurrencyNotFoundError: Если валюта не поддерживается
-        InsufficientFundsError: Если недостаточно средств для продажи
+        InsufficientFundsError: Если недостаточно средств для продажи  
+    Note:
+        Декорирован @log_action для автоматического логирования операции.
+        В verbose режиме логируется дополнительная информация и время выполнения.
     """
     # Загрузка портфеля текущего пользователя
     portfolio = get_portfolio(user_id)
