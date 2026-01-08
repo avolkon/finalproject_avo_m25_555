@@ -10,7 +10,10 @@ from .utils import (
     deserialize_user, serialize_user, load_users, load_rates, save_users, 
     ensure_data_dir
 )
-
+# Импорт функций работы с валютами из модуля currencies
+from .currencies import get_currency, get_supported_currencies
+# Импорт пользовательских исключений
+from .exceptions import InsufficientFundsError, CurrencyNotFoundError, ApiRequestError
 
 
 DATA_DIR = "data"                    # Директория данных
@@ -263,32 +266,84 @@ def create_initial_portfolio(user_id: int) -> Portfolio:
     return portfolio  # Возврат созданного портфеля без сохранения
 
 def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
-    """Покупка валюты за USD."""
-    portfolio = get_portfolio(user_id)  # Загрузка портфеля пользователя
-    currency_code = currency_code.upper()  # Нормализация кода валюты
+    """Покупка валюты за USD.
+    Args:
+        user_id: Идентификатор пользователя
+        currency_code: Код покупаемой валюты
+        amount: Сумма покупки в целевой валюте
+    Raises:
+        ValueError: При некорректных параметрах
+        CurrencyNotFoundError: Если валюта не поддерживается
+        InsufficientFundsError: Если недостаточно USD на балансе
+    """
+    # Загрузка портфеля пользователя
+    portfolio = get_portfolio(user_id)
+    
+    # Нормализация кода валюты в верхний регистр
+    currency_code = currency_code.upper()
+    
+    # Проверка что сумма покупки положительная
     if amount <= 0:
         raise ValueError("""Некорректная сумма →
     'amount' должен быть положительным числом""")
-    if (currency_code not in Portfolio.EXCHANGE_RATES or
-            currency_code == "USD"):
-        raise ValueError("Неизвестная валюта или нельзя купить USD")
-    usd_wallet = portfolio.get_wallet("USD") 
-    assert usd_wallet is not None  # Гарантированно существует
+    
+    # Проверка что не пытаются купить USD за USD
+    if currency_code == "USD":
+        raise ValueError("Нельзя купить USD за USD")
+    
+    # Валидация валюты через get_currency() - автоматически выбросит CurrencyNotFoundError
+    currency_obj = get_currency(currency_code)
+    
+    # Получение USD кошелька (гарантировано get_portfolio)
+    usd_wallet = portfolio.get_wallet("USD")
+    
+    # Защита от None - USD кошелёк всегда должен существовать
+    if usd_wallet is None:
+        raise ValueError("Критическая ошибка: USD кошелёк отсутствует")
+    
+    # Получение или создание кошелька для целевой валюты
     target_wallet = portfolio.get_wallet(currency_code)
     if target_wallet is None:
-        portfolio.add_currency(currency_code)  # Создание кошелька если отсутствует
+        # Создание кошелька если отсутствует
+        portfolio.add_currency(currency_code)
         target_wallet = portfolio.get_wallet(currency_code)
-    assert target_wallet is not None
-    usd_cost = amount * Portfolio.EXCHANGE_RATES[currency_code]  # Стоимость в USD
+    
+    # Защита от None после создания кошелька
+    if target_wallet is None:
+        raise ValueError(f"Критическая ошибка: не удалось создать кошелёк {currency_code}")
+    
+    # Расчёт стоимости покупки в USD (используем статический курс из Portfolio)
+    usd_cost = amount * Portfolio.EXCHANGE_RATES[currency_code]
+    
+    # Проверка достаточности средств на USD кошельке
     if usd_wallet.balance < usd_cost:
-        raise ValueError("Недостаточно USD на балансе")
-    usd_wallet.withdraw(usd_cost)  # Списание USD
-    target_wallet.deposit(amount)  # Зачисление целевой валюты
-    save_portfolio(portfolio)  # Сохранение обновленного портфеля
+        raise InsufficientFundsError(
+            available=usd_wallet.balance,  # Доступный баланс USD
+            required=usd_cost,             # Требуемая сумма USD
+            code="USD"                     # Код валюты операции (USD)
+        )
+    
+    # Списание USD с кошелька пользователя
+    usd_wallet.withdraw(usd_cost)
+    
+    # Зачисление целевой валюты на кошелёк пользователя
+    target_wallet.deposit(amount)
+    
+    # Сохранение обновлённого портфеля
+    save_portfolio(portfolio)
 
 
 def sell_currency(user_id: int, currency_code: str, amount: float) -> None:
-    """Продажа валюты: списать целевую, начислить USD."""
+    """Продажа валюты: списать целевую, начислить USD.
+    Args:
+        user_id: Идентификатор пользователя
+        currency_code: Код продаваемой валюты
+        amount: Сумма продажи в целевой валюте
+    Raises:
+        ValueError: При некорректных параметрах
+        CurrencyNotFoundError: Если валюта не поддерживается
+        InsufficientFundsError: Если недостаточно средств для продажи
+    """
     # Загрузка портфеля текущего пользователя
     portfolio = get_portfolio(user_id)
     
@@ -299,28 +354,37 @@ def sell_currency(user_id: int, currency_code: str, amount: float) -> None:
     if amount <= 0:
         raise ValueError("Сумма должна быть положительной")
     
-    # Валидация: валюта поддерживается и не USD
-    if (currency_code not in Portfolio.EXCHANGE_RATES or 
-        currency_code == 'USD'):
-        raise ValueError("Валюта не поддерживается")
+    # Валидация: нельзя продать USD (это базовая валюта)
+    if currency_code == 'USD':
+        raise ValueError("Нельзя продать USD (это базовая валюта)")
+    
+    # Валидация валюты через get_currency() - автоматически выбросит CurrencyNotFoundError
+    currency_obj = get_currency(currency_code)
     
     # Получение целевого кошелька для продажи
     target_wallet = portfolio.get_wallet(currency_code)
+    
     # Защита от None: кошелёк должен существовать для продажи
     if target_wallet is None:
-        raise ValueError("Критическая ошибка: целевой кошелёк отсутствует")
+        raise ValueError(f"У вас нет кошелька '{currency_code}'. "
+                         f"Добавьте валюту: она создаётся автоматически при первой покупке.")
     
     # Получение USD кошелька (гарантировано get_portfolio)
     usd_wallet = portfolio.get_wallet('USD')
-    # Защита от None для mypy
+    
+    # Защита от None для mypy (кошелёк USD всегда должен существовать)
     if usd_wallet is None:
         raise ValueError("Критическая ошибка: USD кошелёк отсутствует")
     
     # Проверка достаточности баланса целевой валюты
     if target_wallet.balance < amount:
-        raise ValueError("Недостаточно средств на кошельке")
+        raise InsufficientFundsError(
+            available=target_wallet.balance,  # Доступный баланс
+            required=amount,                  # Требуемая сумма
+            code=currency_code                # Код валюты
+        )
     
-    # Расчёт дохода в USD от продажи
+    # Расчёт дохода в USD от продажи (используем статический курс)
     usd_income = amount * Portfolio.EXCHANGE_RATES[currency_code]
     
     # Списание валюты с целевого кошелька

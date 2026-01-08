@@ -17,6 +17,12 @@ from valutatrade_hub.core.usecases import (  # Импорт бизнес-лог�
     get_rate
 )
 from valutatrade_hub.core.models import Portfolio  # Импорт модели портфеля
+# Импорт пользовательских исключений для обработки в CLI
+from valutatrade_hub.core.exceptions import (
+    InsufficientFundsError,
+    CurrencyNotFoundError,
+    ApiRequestError
+)
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -135,10 +141,12 @@ def buy_cli(currency: str, amount: float) -> None:
         # 6. Вывод обновленного портфеля (существующий функционал)
         show_portfolio('USD')
         
-    except ValueError as e:
-        print(f"Ошибка ввода: {e}")
+    except (ValueError, CurrencyNotFoundError) as e:
+        # Обработка ошибок валидации и неизвестных валют
+        print(f"Ошибка: {e}")
         sys.exit(1)
     except Exception as e:
+        # Обработка всех остальных исключений
         print(f"Критическая ошибка: {e}")
         sys.exit(1)
 
@@ -191,10 +199,12 @@ def sell_cli(currency: str, amount: float) -> None:
         # 8. Вывод обновленного портфеля (существующий функционал)
         show_portfolio('USD')
         
-    except ValueError as e:
-        print(f"Ошибка ввода: {e}")
+    except (ValueError, CurrencyNotFoundError, InsufficientFundsError) as e:
+        # Обработка ошибок валидации, неизвестных валют и недостатка средств
+        print(f"Ошибка: {e}")
         sys.exit(1)
     except Exception as e:
+        # Обработка всех остальных исключений
         print(f"Критическая ошибка: {e}")
         sys.exit(1)
 

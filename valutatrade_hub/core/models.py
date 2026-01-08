@@ -190,13 +190,27 @@ class Wallet:
             raise ValueError("'amount' должен быть положительным числом")
         self._balance += amount              # Добавление к балансу
 
-    def withdraw(self, amount: float) -> None:  # Снятие
-        """Снятие."""
-        if amount <= 0:                     # Проверка суммы
+    def withdraw(self, amount: float) -> None:
+        """Снятие средств с кошелька.
+        Args:
+            amount: Сумма для снятия (должна быть положительной)
+        Raises:
+            ValueError: Если amount не является положительным числом
+            InsufficientFundsError: Если недостаточно средств на балансе
+        """
+        # Проверка что сумма для снятия положительная
+        if amount <= 0:
             raise ValueError("'amount' должен быть положительным числом")
-        if amount > self._balance:          # Проверка достаточности
-            raise ValueError("Недостаточно средств")
-        self._balance -= amount              # Вычитание из баланса
+        
+        # Проверка достаточности средств на балансе
+        if amount > self._balance:
+            # Импорт исключения здесь для избежания циклических зависимостей
+            from .exceptions import InsufficientFundsError
+            raise InsufficientFundsError(
+                available=self._balance,      # Доступный баланс
+                required=amount,              # Требуемая сумма
+                code=self.currency_code       # Код валюты кошелька
+            )
 
     def get_balance_info(self) -> str:  # Информация
         """Информация о балансе."""
