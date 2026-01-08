@@ -213,7 +213,7 @@ def sell_cli(currency: str, amount: float) -> None:
         # Обработка всех остальных исключений
         print(f"Критическая ошибка: {e}")
         sys.exit(1)
-            
+
     # Удалены дублирующиеся строки, т.к. операция продажи
     # уже выполняется в блоке try перед обработкой исключений.
     # # Выполнение продажи через бизнес-логику
@@ -223,25 +223,42 @@ def sell_cli(currency: str, amount: float) -> None:
     # show_portfolio('USD')
 
 def get_rate_cli(from_currency: str, to_currency: str) -> None:
-    """CLI команда получения курса валют с индикатором свежести."""
+    """CLI команда получения курса валют с индикатором свежести и источником данных."""
+    
     try:
         # Получение курса через бизнес-логику (без проверки сессии)
+        # Возвращает кортеж: (курс, timestamp, источник, is_fresh)
         direct_rate, timestamp, source, is_fresh = get_rate(from_currency, 
                                                             to_currency)
         
         # Преобразование timestamp из ISO формата в человекочитаемый
-        # ISO: "2025-10-09T00:03:22" → "2025-10-09 00:03:22"
-        human_timestamp = timestamp
+        human_timestamp = timestamp  # Инициализация значением по умолчанию
         if timestamp != "N/A":
-            # Заменяем T на пробел, если он есть в строке
+            # Заменяем T на пробел, если он есть в строке (ISO → читаемый)
             human_timestamp = timestamp.replace("T", " ") if "T" in timestamp else timestamp
         
+        # Определение статуса свежести на основе источника и is_fresh
+        if "Fallback" in source:
+            # Для резервных (статических) курсов особый статус
+            freshness_status = "статический (резервный)"
+        elif is_fresh:
+            # Данные свежие (обновлены в пределах TTL)
+            freshness_status = "свежий"
+        else:
+            # Данные устарели (превышен TTL)
+            freshness_status = "устаревший"
+        
         # Прямой курс с 8 знаками после запятой по формату ТЗ
-        print(f"Курс {from_currency}→{to_currency}: {direct_rate:.8f} "
-              f"(обновлено: {human_timestamp})")
+        print(f"Курс {from_currency}→{to_currency}: {direct_rate:.8f}")
+        # Отдельные строки для каждой информации для лучшей читаемости
+        print(f"Обновлено: {human_timestamp}")
+        print(f"Источник: {source}")
+        print(f"Статус: {freshness_status}")
         
         # Обратный курс с 2 знаками после запятой по формату ТЗ
-        print(f"Обратный курс {to_currency}→{from_currency}: {1/direct_rate:.2f}")
+        # Защита от деления на ноль (direct_rate никогда не должен быть 0)
+        inverse_rate = 1 / direct_rate if direct_rate != 0 else 0.0
+        print(f"Обратный курс {to_currency}→{from_currency}: {inverse_rate:.2f}")
         
     except CurrencyNotFoundError as e:
         # Обработка неизвестной валюты с выводом списка поддерживаемых
