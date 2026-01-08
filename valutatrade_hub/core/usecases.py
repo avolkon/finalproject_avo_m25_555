@@ -6,21 +6,28 @@ import secrets  # Стандартные библиотеки
 from datetime import datetime        # Парсинг дат ISO
 from typing import Dict, List, Optional, Any  # Типизация
 from .models import User, Portfolio  # Импорт моделей
-from .utils import (
-    deserialize_user, serialize_user, load_users, load_rates, save_users, 
-    ensure_data_dir
-)
+from .utils import (deserialize_user, serialize_user)
 # Импорт функций работы с валютами из модуля currencies
 from .currencies import get_currency
 # Импорт пользовательских исключений
 from .exceptions import InsufficientFundsError
+# Импорт инфраструктурных компонентов
+from ..infra.settings import SettingsLoader
+from ..infra.database import DatabaseManager
 
+# Создание глобальных экземпляров синглтонов
+_settings = SettingsLoader()
+_db = DatabaseManager()
 
-DATA_DIR = "data"                    # Директория данных
-USERS_FILE = os.path.join(DATA_DIR, "users.json")  # Путь к пользователям
-PORTFOLIOS_FILE = os.path.join(DATA_DIR, "portfolios.json")  # Путь к портфелям
-# Константа пути к файлу курсов валют
-RATES_FILE = os.path.join(DATA_DIR, "rates.json")
+# Глобальные экземпляры синглтонов уже созданы выше
+# DATA_DIR, USERS_FILE, PORTFOLIOS_FILE, RATES_FILE больше не нужны как константы
+# так как пути управляются через SettingsLoader и DatabaseManager
+
+# DATA_DIR = "data"                    # Директория данных
+# USERS_FILE = os.path.join(DATA_DIR, "users.json")  # Путь к пользователям
+# PORTFOLIOS_FILE = os.path.join(DATA_DIR, "portfolios.json")  # Путь к портфелям
+# # Константа пути к файлу курсов валют
+# RATES_FILE = os.path.join(DATA_DIR, "rates.json")
 CURRENT_USER_ID: Optional[int] = None  # Глобальная сессия пользователя
 
 def serialize_portfolio(portfolio: Portfolio) -> Dict:  # Сериализация → JSON
@@ -84,19 +91,24 @@ def _initialize_user_portfolio(user_id: int) -> None:
     portfolio = Portfolio(user_id)       # Создание объекта Portfolio
     portfolio.add_currency('USD')        # Добавление базовой валюты
     
-    portfolios = load_portfolios()       # Текущие портфели из JSON
+    # portfolios = load_portfolios()       # Текущие портфели из JSON
+    portfolios = _load_portfolios_from_db()   # Текущий список через DatabaseManager
+
     portfolio_data = serialize_portfolio(portfolio)  # OOP → Dict для JSON
     
     # Проверка дублей (race condition safe)
     if not any(p['user_id'] == user_id for p in portfolios):
         portfolios.append(portfolio_data)  # ✅ Теперь portfolio_data существует!
-        save_portfolios(portfolios)        # Атомарное сохранение
+        
+        ## save_portfolios(portfolios)        # Атомарное сохранение
+        _save_portfolios_to_db(portfolios)  # Атомарное сохранение через DatabaseManager
 
 
 def register_user(username: str, password: str) -> int:
     """Регистрация нового пользователя."""
-    users = load_users()  # Загрузка текущих пользователей
-    
+    # users = load_users()  # Загрузка текущих пользователей
+    users = _db.load_users()  # Загрузка текущих пользователей через DatabaseManager
+
     # Проверка уникальности username (case-insensitive по ТЗ)
     username_lower = username.lower()  # Приведение к нижнему регистру для проверки
     if any(u["username"].lower() == username_lower for u in users):
@@ -116,7 +128,8 @@ def register_user(username: str, password: str) -> int:
     
     # Сериализация User → Dict и добавление в список
     users.append(serialize_user(user))  # Стандартный сериализатор
-    save_users(users)  # Атомарное сохранение в users.json
+    ## save_users(users)  # Атомарное сохранение в users.json
+    _db.save_users(users)  # Атомарное сохранение в users.json через DatabaseManager
     
     # СОЗДАНИЕ НАЧАЛЬНОГО ПОРТФЕЛЯ С USD КОШЕЛЬКОМ
     portfolio = create_initial_portfolio(user_id)  # Создание портфеля через фабрику
@@ -126,8 +139,9 @@ def register_user(username: str, password: str) -> int:
 
 def login_user(username: str, password: str) -> None:
     """Авторизация пользователя."""
-    users = load_users()  # Все пользователи из JSON
-    
+    # users = load_users()  # Все пользователи из JSON
+    users = _db.load_users()  # Все пользователи из JSON через DatabaseManager
+
     for user_data in users:  # Перебор всех записей пользователей
         if user_data["username"].lower() == username.lower():  # Case-insensitive поиск
             user = deserialize_user(user_data)  # Dict → User объект (OOP паттерн)
@@ -150,7 +164,9 @@ def get_current_user() -> User | None:
     if CURRENT_USER_ID is None:
         return None
     # Загружает список пользователей
-    users = load_users()
+    # users = load_users()
+    users = _db.load_users()  # Все пользователи из JSON через DatabaseManager
+
     # Ищет по user_id
     for data in users:
         if data["user_id"] == CURRENT_USER_ID:
@@ -161,25 +177,31 @@ def get_current_user() -> User | None:
 Бизнес-логика: работа с пользователями и портфелями.
 """
 
-def load_portfolios() -> List[Dict]: # Загрузка портфелей
-    """Загрузка портфелей."""
-    ensure_data_dir()                # Проверка директории
-    try:
-        with open(PORTFOLIOS_FILE, 'r', encoding='utf-8') as f:  # Чтение
-            return json.load(f)      # Парсинг в список
-    except FileNotFoundError:        # Файл не найден
-        return []                    # Пустой список
+def _load_portfolios_from_db() -> List[Dict]:
+    """Загрузка портфелей через DatabaseManager.
+    
+    Returns:
+        Список словарей с данными портфелей
+    """
+    return _db.load_portfolios()
 
-
-def save_portfolios(portfolios: List[Dict]) -> None:  # Сохранение
-    """Сохранение портфелей."""
-    with open(PORTFOLIOS_FILE, 'w', encoding='utf-8') as f:  # Запись
-        json.dump(portfolios, f, indent=2, ensure_ascii=False)  # Форматированный JSON
+# def save_portfolios(portfolios: List[Dict]) -> None:  # Сохранение
+#     """Сохранение портфелей."""
+#     with open(PORTFOLIOS_FILE, 'w', encoding='utf-8') as f:  # Запись
+#         json.dump(portfolios, f, indent=2, ensure_ascii=False)  # Форматированный JSON
+def _save_portfolios_to_db(portfolios: List[Dict]) -> None:
+    """Сохранение портфелей через DatabaseManager.
+    Args:
+        portfolios: Список словарей с данными портфелей
+    """
+    _db.save_portfolios(portfolios)
 
 
 def load_user(user_id: int) -> Optional[User]:  # Загрузка по ID
     """Загрузка пользователя."""
-    users = load_users()             # Список из JSON
+    ## users = load_users()             # Список из JSON
+    users = _db.load_users()  # Загрузка текущих пользователей через DatabaseManager
+
     for u in users:                  # Перебор записей. Поиск совпадения
         if u['user_id'] == user_id:
             return deserialize_user(u)  # Стандартный десериализатор
@@ -188,7 +210,9 @@ def load_user(user_id: int) -> Optional[User]:  # Загрузка по ID
 
 def load_portfolio(user_id: int) -> Optional[Portfolio]:  # Полная десериализация
     """Загрузка портфеля."""
-    portfolios = load_portfolios()   # Список портфелей
+    # portfolios = load_portfolios()   # Список портфелей
+    portfolios = _load_portfolios_from_db()   # Список портфелей через DatabaseManager
+
     for p in portfolios:             # Поиск по user_id
         if p['user_id'] == user_id:
             return deserialize_portfolio(p, user_id)  # ✅ OOP-first
@@ -216,17 +240,23 @@ def get_portfolio(user_id: int) -> Portfolio:
 
 def save_portfolio(portfolio: Portfolio) -> None:  # Объект → JSON
     """Сохранение портфеля."""
-    portfolios = load_portfolios()   # Текущий список
+    # portfolios = load_portfolios()   # Текущий список
+    portfolios = _load_portfolios_from_db()   # Текущий список через DatabaseManager
+
     portfolio_data = serialize_portfolio(portfolio)  # ✅ Сериализация
     
     for i, p in enumerate(portfolios):  # Поиск позиции
         if p['user_id'] == portfolio.user_id:  # Замена существующего
             portfolios[i] = portfolio_data  # Обновление
-            save_portfolios(portfolios)  # Атомарное сохранение
+            
+            ## save_portfolios(portfolios)  # Атомарное сохранение
+            _save_portfolios_to_db(portfolios)  # Атомарное сохранение через DatabaseManager
             return                   # Готово
             
     portfolios.append(portfolio_data)  # Новый портфель
-    save_portfolios(portfolios)      # Финальное сохранение
+    
+    ## save_portfolios(portfolios)      # Финальное сохранение
+    _save_portfolios_to_db(portfolios)  # Атомарное сохранение через DatabaseManager
 
 def create_empty_portfolio(user_id: int) -> Portfolio:
     """
@@ -413,7 +443,8 @@ def get_rate(from_currency: str, to_currency: str) -> tuple[float, str, str, boo
         - bool: True если курс свежий, False если устарел
     """
     # Загрузка курсов из JSON или пустой словарь
-    rates = load_rates()
+    ## rates = load_rates()
+    rates = _db.load_rates()  # Загрузка курсов через DatabaseManager
     
     # Нормализация кодов валют в верхний регистр
     from_code = from_currency.upper()
@@ -601,11 +632,9 @@ def _save_rates_to_file(rates_data: dict) -> None:
 def is_rate_fresh(currency_pair: str, timestamp: str) -> bool:
     """
     Проверка актуальности курса валюты по времени обновления.
-    
     Args:
         currency_pair: Валютная пара в формате "EUR_USD"
         timestamp: Время обновления в ISO формате "2025-10-09T10:30:00"
-        
     Returns:
         bool: True если курс свежий, False если устарел
     """
@@ -633,9 +662,13 @@ def is_rate_fresh(currency_pair: str, timestamp: str) -> bool:
     FIAT_CURRENCIES = {"USD", "EUR", "RUB"}  # Фиатные валюты
     CRYPTO_CURRENCIES = {"BTC", "ETH"}       # Криптовалюты
     
-    FIAT_FRESHNESS = timedelta(hours=24)     # 24 часа для фиата
-    CRYPTO_FRESHNESS = timedelta(minutes=5)  # 5 минут для крипто
-    DEFAULT_FRESHNESS = timedelta(minutes=30)  # 30 минут по умолчанию
+    # Получение TTL из настроек через SettingsLoader
+    fiat_ttl_seconds = _settings.get('rates_ttl_fiat_seconds', 86400)  # 24 часа по умолчанию
+    crypto_ttl_seconds = _settings.get('rates_ttl_crypto_seconds', 300)  # 5 минут по умолчанию
+    
+    FIAT_FRESHNESS = timedelta(seconds=fiat_ttl_seconds)     # TTL для фиатных валют из настроек
+    CRYPTO_FRESHNESS = timedelta(seconds=crypto_ttl_seconds)  # TTL для криптовалют из настроек
+    DEFAULT_FRESHNESS = timedelta(minutes=30)  # 30 минут по умолчанию (оставляем константой)
     
     # ВАЛИДАЦИЯ ПОЛИТИКИ СВЕЖЕСТИ (assert для разработки)
     assert "USD" in FIAT_CURRENCIES, "USD должен быть в фиатных валютах"
