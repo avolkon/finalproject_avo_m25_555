@@ -29,14 +29,11 @@ def log_action(action: Optional[str] = None, verbose: bool = False) -> Callable:
         @wraps(func)
         def wrapper(*args: Tuple[Any, ...], **kwargs: Dict[str, Any]) -> Any:
             """Внутренняя функция-обёртка с логированием операции.
-            
             Args:
                 *args: Позиционные аргументы декорируемой функции
-                **kwargs: Именованные аргументы декорируемой функции
-                
+                **kwargs: Именованные аргументы декорируемой функции   
             Returns:
                 Результат выполнения декорируемой функции
-                
             Raises:
                 Любые исключения, возникшие в декорируемой функции
             """
@@ -54,6 +51,9 @@ def log_action(action: Optional[str] = None, verbose: bool = False) -> Callable:
                 'action': action_name,
                 **context
             }
+            
+                        # Инициализация переменной времени начала до условия
+            start_time: Optional[float] = None
             
             # Логирование начала операции (только в verbose режиме)
             if verbose:
@@ -98,7 +98,7 @@ def log_action(action: Optional[str] = None, verbose: bool = False) -> Callable:
             
             finally:
                 # Дополнительное логирование в verbose режиме (время выполнения)
-                if verbose and 'start_time' in locals():
+                if verbose and start_time is not None:
                     execution_time = time.time() - start_time
                     logger.debug(
                         f"Операция {action_name} завершена за {execution_time:.3f} секунд",
@@ -189,5 +189,4 @@ def _example_usage() -> None:
     def example_register_user(username: str, password: str) -> int:
         """Пример функции регистрации пользователя."""
         return 1  # Возвращает user_id
-    
     
