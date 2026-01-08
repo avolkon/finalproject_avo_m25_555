@@ -11,9 +11,9 @@ from .utils import (
     ensure_data_dir
 )
 # Импорт функций работы с валютами из модуля currencies
-from .currencies import get_currency, get_supported_currencies
+from .currencies import get_currency
 # Импорт пользовательских исключений
-from .exceptions import InsufficientFundsError, CurrencyNotFoundError, ApiRequestError
+from .exceptions import InsufficientFundsError
 
 
 DATA_DIR = "data"                    # Директория данных
@@ -292,7 +292,8 @@ def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
         raise ValueError("Нельзя купить USD за USD")
     
     # Валидация валюты через get_currency() - автоматически выбросит CurrencyNotFoundError
-    currency_obj = get_currency(currency_code)
+    # Вызов функции без сохранения результата - достаточно для валидации
+    get_currency(currency_code)  # Если валюта неизвестна, выбросит CurrencyNotFoundError
     
     # Получение USD кошелька (гарантировано get_portfolio)
     usd_wallet = portfolio.get_wallet("USD")
@@ -359,7 +360,8 @@ def sell_currency(user_id: int, currency_code: str, amount: float) -> None:
         raise ValueError("Нельзя продать USD (это базовая валюта)")
     
     # Валидация валюты через get_currency() - автоматически выбросит CurrencyNotFoundError
-    currency_obj = get_currency(currency_code)
+    # Вызов функции без сохранения результата - достаточно для валидации
+    get_currency(currency_code)  # Если валюта неизвестна, выбросит CurrencyNotFoundError
     
     # Получение целевого кошелька для продажи
     target_wallet = portfolio.get_wallet(currency_code)
