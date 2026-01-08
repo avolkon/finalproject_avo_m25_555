@@ -4,6 +4,7 @@ import json
 import os
 import secrets  # Стандартные библиотеки
 from datetime import datetime        # Парсинг дат ISO
+import logging
 from typing import Dict, List, Optional, Any  # Типизация
 from .models import User, Portfolio  # Импорт моделей
 from .utils import (deserialize_user, serialize_user)
@@ -11,6 +12,7 @@ from .utils import (deserialize_user, serialize_user)
 from .currencies import get_currency
 # Импорт пользовательских исключений
 from .exceptions import InsufficientFundsError
+from .exceptions import CurrencyNotFoundError, ApiRequestError
 # Импорт инфраструктурных компонентов
 from ..infra.settings import SettingsLoader
 from ..infra.database import DatabaseManager
@@ -321,9 +323,11 @@ def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
         ValueError: При некорректных параметрах
         CurrencyNotFoundError: Если валюта не поддерживается
         InsufficientFundsError: Если недостаточно USD на балансе
+        ApiRequestError: Если не удалось получить актуальный курс  
     Note:
         Декорирован @log_action для автоматического логирования операции.
         В verbose режиме логируется дополнительная информация и время выполнения.
+        Использует get_rate() для получения актуального курса вместо статического EXCHANGE_RATES.
     """
     # Загрузка портфеля пользователя
     portfolio = get_portfolio(user_id)
@@ -340,9 +344,30 @@ def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
     if currency_code == "USD":
         raise ValueError("Нельзя купить USD за USD")
     
-    # Валидация валюты через get_currency() - автоматически выбросит CurrencyNotFoundError
-    # Вызов функции без сохранения результата - достаточно для валидации
-    get_currency(currency_code)  # Если валюта неизвестна, выбросит CurrencyNotFoundError
+    # Получение объекта валюты для валидации и возможного использования
+    currency_obj = get_currency(currency_code)  # Может выбросить CurrencyNotFoundError
+    
+    # Получение актуального курса через get_rate()
+    try:
+        # Получение курса валюты к USD
+        rate, timestamp, source, is_fresh = get_rate(currency_code, "USD")
+        
+    except (CurrencyNotFoundError, ApiRequestError) as e:
+        # Fallback на статический курс из Portfolio.EXCHANGE_RATES при ошибках
+        if currency_code in Portfolio.EXCHANGE_RATES:
+            rate = Portfolio.EXCHANGE_RATES[currency_code]
+            source = "Fallback (статические курсы)"
+            timestamp = "N/A"
+            is_fresh = False
+            
+            # Логирование использования fallback курса
+            logging.getLogger('actions').warning(
+                f"Используется fallback курс для {currency_code}/USD: {rate}",
+                extra={'currency': currency_code, 'rate': rate, 'source': source}
+            )
+        else:
+            # Если валюта нет даже в статических курсах, пробрасываем исключение
+            raise CurrencyNotFoundError(currency_code)
     
     # Получение USD кошелька (гарантировано get_portfolio)
     usd_wallet = portfolio.get_wallet("USD")
@@ -362,8 +387,8 @@ def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
     if target_wallet is None:
         raise ValueError(f"Критическая ошибка: не удалось создать кошелёк {currency_code}")
     
-    # Расчёт стоимости покупки в USD (используем статический курс из Portfolio)
-    usd_cost = amount * Portfolio.EXCHANGE_RATES[currency_code]
+    # Расчёт стоимости покупки в USD через полученный курс
+    usd_cost = amount * rate
     
     # Проверка достаточности средств на USD кошельке
     if usd_wallet.balance < usd_cost:
@@ -373,11 +398,23 @@ def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
             code="USD"                     # Код валюты операции (USD)
         )
     
-    # Списание USD с кошелька пользователя
+    # Выполнение операции покупки
     usd_wallet.withdraw(usd_cost)
-    
-    # Зачисление целевой валюты на кошелёк пользователя
     target_wallet.deposit(amount)
+    
+    # Дополнительное логирование информации о курсе в действиях
+    actions_logger = logging.getLogger('actions')
+    actions_logger.info(
+        f"Курс {currency_code}/USD: {rate:.6f}, источник: {source}",
+        extra={
+            'rate': rate,
+            'rate_source': source,
+            'rate_fresh': is_fresh,
+            'rate_timestamp': timestamp,
+            'currency_name': currency_obj.name,
+            'usd_cost': usd_cost
+        }
+    )
     
     # Сохранение обновлённого портфеля
     save_portfolio(portfolio)
