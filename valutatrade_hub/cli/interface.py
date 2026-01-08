@@ -20,8 +20,7 @@ from valutatrade_hub.core.models import Portfolio  # Импорт модели �
 # Импорт пользовательских исключений для обработки в CLI
 from valutatrade_hub.core.exceptions import (
     InsufficientFundsError,
-    CurrencyNotFoundError,
-    ApiRequestError
+    CurrencyNotFoundError
 )
 
 
