@@ -7,14 +7,17 @@ import logging
 from typing import Dict, List, Optional, Any  # Типизация
 from .models import User, Portfolio  # Импорт моделей
 from .utils import (deserialize_user, serialize_user)
-# Импорт функций работы с валютами из модуля currencies
 from .currencies import get_currency
 # Импорт пользовательских исключений
-from .exceptions import InsufficientFundsError
-from .exceptions import CurrencyNotFoundError, ApiRequestError
+from .exceptions import (
+    InsufficientFundsError, 
+    CurrencyNotFoundError, 
+    ApiRequestError,
+    ValutaTradeError
+)
 # Импорт инфраструктурных компонентов
 from ..infra.settings import SettingsLoader
-from ..infra.database import DatabaseManager
+from ..infra.database import DatabaseManager, DatabaseError
 # Импорт декоратора для логирования операций
 from ..decorators import log_action
 
@@ -91,57 +94,91 @@ def deserialize_portfolio(data: Dict[str, Any], user_id: int) -> Portfolio:
 
 def _initialize_user_portfolio(user_id: int) -> None:
     """Инициализация портфеля нового пользователя с USD кошельком."""
-    portfolio = Portfolio(user_id)       # Создание объекта Portfolio
-    portfolio.add_currency('USD')        # Добавление базовой валюты
+    portfolio = Portfolio(user_id)       # Создание объекта портфеля
+    portfolio.add_currency('USD')        # Добавление базовой валюты USD
     
-    # portfolios = load_portfolios()       # Текущие портфели из JSON
-    portfolios = _load_portfolios_from_db()   # Текущий список через DatabaseManager
-
-    portfolio_data = serialize_portfolio(portfolio)  # OOP → Dict для JSON
+    # Загрузка текущих портфелей через DatabaseManager
+    try:
+        portfolios = _db.load_portfolios()  # Текущий список через DatabaseManager
+    except DatabaseError as e:
+        # Логирование ошибки загрузки портфелей
+        logging.getLogger('database').error(
+            f"Ошибка загрузки портфелей при инициализации пользователя {user_id}: {e}"
+        )
+        raise ValutaTradeError(f"Системная ошибка при инициализации портфеля: {e}") from e
     
-    # Проверка дублей (race condition safe)
+    portfolio_data = serialize_portfolio(portfolio)  # Преобразование объекта в словарь
+    
+    # Проверка дублирования пользователей (защита от race condition)
     if not any(p['user_id'] == user_id for p in portfolios):
-        portfolios.append(portfolio_data)  # ✅ Теперь portfolio_data существует!
+        portfolios.append(portfolio_data)  # Добавление нового портфеля в список
         
-        ## save_portfolios(portfolios)        # Атомарное сохранение
-        _save_portfolios_to_db(portfolios)  # Атомарное сохранение через DatabaseManager
-
+        try:
+            # Атомарное сохранение через DatabaseManager с backup механизмом
+            _db.save_portfolios(portfolios)
+        except DatabaseError as e:
+            # Логирование ошибки сохранения портфелей
+            logging.getLogger('database').error(
+                f"Ошибка сохранения портфелей для пользователя {user_id}: {e}"
+            )
+            raise ValutaTradeError(f"Системная ошибка при сохранении портфеля: {e}") from e
+        
 
 @log_action(action='REGISTER')
 def register_user(username: str, password: str) -> int:
     """Регистрация нового пользователя.
+    Args:
+        username: Имя пользователя для регистрации
+        password: Пароль пользователя для хеширования
+    Returns:
+        int: Уникальный идентификатор зарегистрированного пользователя 
+    Raises:
+        ValueError: Если имя пользователя занято или пароль некорректен
+        DatabaseError: При ошибках работы с базой данных
+        ValutaTradeError: При системных ошибках регистрации
     Note:
         Декорирован @log_action для автоматического логирования операции регистрации.
         Пароль пользователя не попадает в логи (скрывается декоратором).
     """
-    # users = load_users()  # Загрузка текущих пользователей
-    users = _db.load_users()  # Загрузка текущих пользователей через DatabaseManager
-
-    # Проверка уникальности username (case-insensitive по ТЗ)
-    username_lower = username.lower()  # Приведение к нижнему регистру для проверки
+    try:
+        # Загрузка текущих пользователей через DatabaseManager с обработкой ошибок
+        users = _db.load_users()  # Список словарей с данными пользователей
+    except DatabaseError as e:
+        # Логирование ошибки загрузки пользователей
+        logging.getLogger('database').error(f"Ошибка загрузки пользователей: {e}")
+        raise ValutaTradeError(f"Системная ошибка при регистрации: {e}") from e
+    
+    # Проверка уникальности имени пользователя (регистронезависимая проверка по ТЗ)
+    username_lower = username.lower()  # Приведение к нижнему регистру для сравнения
     if any(u["username"].lower() == username_lower for u in users):
         raise ValueError(f"Имя '{username}' уже занято")  # Точное сообщение из ТЗ
     
-    # Валидация пароля по ТЗ (≥4 символа)
+    # Валидация пароля по ТЗ (длина не менее 4 символов)
     if len(password) < 4:
         raise ValueError("Пароль ≥4 символа")  # Точная формулировка ТЗ
     
-    # Генерация нового user_id: максимум существующих + 1 (или 1 если пусто)
+    # Генерация нового user_id: максимум существующих ID + 1 (или 1 если список пуст)
     user_id = max([u["user_id"] for u in users], default=0) + 1  # Инкремент ID
-    salt = secrets.token_hex(4)  # Криптографически стойкая соль (8 байт в hex)
+    salt = secrets.token_hex(4)  # Криптографически стойкая соль (8 байт в hex формате)
     
-    # Создание объекта User с временным пустым хешем
+    # Создание объекта User с временным пустым хешем пароля
     user = User(user_id, username, "", salt, datetime.now())  # OOP-first подход
     user.change_password(password)  # Хеширование пароля: sha256(password + salt)
     
-    # Сериализация User → Dict и добавление в список
-    users.append(serialize_user(user))  # Стандартный сериализатор
-    ## save_users(users)  # Атомарное сохранение в users.json
-    _db.save_users(users)  # Атомарное сохранение в users.json через DatabaseManager
+    # Сериализация User → Dict и добавление в список пользователей
+    users.append(serialize_user(user))  # Использование стандартного сериализатора
+    
+    try:
+        # Атомарное сохранение обновленного списка пользователей через DatabaseManager
+        _db.save_users(users)  # Сохранение с backup механизмом
+    except DatabaseError as e:
+        # Логирование ошибки сохранения пользователей
+        logging.getLogger('database').error(f"Ошибка сохранения пользователя {username}: {e}")
+        raise ValutaTradeError(f"Системная ошибка при сохранении данных: {e}") from e
     
     # СОЗДАНИЕ НАЧАЛЬНОГО ПОРТФЕЛЯ С USD КОШЕЛЬКОМ
     portfolio = create_initial_portfolio(user_id)  # Создание портфеля через фабрику
-    save_portfolio(portfolio)  # Явное сохранение портфеля в файл
+    save_portfolio(portfolio)  # Явное сохранение портфеля в файл через DatabaseManager
     
     return user_id  # Возврат ID нового пользователя для CLI
 
@@ -153,12 +190,21 @@ def login_user(username: str, password: str) -> None:
         password: Пароль пользователя для проверки
     Raises:
         ValueError: Если пользователь не найден или пароль неверный
+        DatabaseError: При ошибках загрузки данных пользователей
+        ValutaTradeError: При системных ошибках авторизации
     Note:
         Декорирован @log_action для автоматического логирования операции входа.
         Пароль пользователя не попадает в логи (скрывается декоратором).
     """
-    users = _db.load_users()  # Все пользователи из JSON
+    try:
+        # Загрузка всех пользователей через DatabaseManager с обработкой ошибок
+        users = _db.load_users()  # Все пользователи из JSON через DatabaseManager
+    except DatabaseError as e:
+        # Логирование ошибки загрузки пользователей
+        logging.getLogger('database').error(f"Ошибка загрузки пользователей при входе: {e}")
+        raise ValutaTradeError(f"Системная ошибка при входе: {e}") from e
     
+    # Поиск пользователя по имени (регистронезависимый поиск)
     for user_data in users:  # Перебор всех записей пользователей
         if user_data["username"].lower() == username.lower():  # Case-insensitive поиск
             user = deserialize_user(user_data)  # Dict → User объект (OOP паттерн)
@@ -166,74 +212,129 @@ def login_user(username: str, password: str) -> None:
             if user.verify_password(password):  # Проверка хеша пароля
                 global CURRENT_USER_ID  # Модификация глобальной сессии
                 CURRENT_USER_ID = user.user_id  # Установка текущего пользователя
-                print(f"Вы вошли как '{username}'") # Из объекта (consistent)
+                print(f"Вы вошли как '{username}'")  # Сообщение об успешном входе
                 return  # Успешный ранний возврат
             
-            raise ValueError("Неверный пароль")  
+            raise ValueError("Неверный пароль")  # Неправильный пароль
     
-    raise ValueError("Пользователь не найден")
-
+    raise ValueError("Пользователь не найден")  # Пользователь не найден в системе
 
 def get_current_user() -> User | None:
-    """Получить текущего залогиненного пользователя."""
-    # Нет активной сессии
+    """Получить текущего залогиненного пользователя.
+    
+    Returns:
+        User | None: Объект пользователя или None если сессия не активна
+                    или пользователь не найден
+                    
+    Raises:
+        DatabaseError: При ошибках загрузки данных пользователей
+    """
+    # Проверка наличия активной пользовательской сессии
     if CURRENT_USER_ID is None:
-        return None
-    # Загружает список пользователей
-    # users = load_users()
-    users = _db.load_users()  # Все пользователи из JSON через DatabaseManager
-
-    # Ищет по user_id
+        return None  # Нет активной сессии
+    
+    try:
+        # Загрузка всех пользователей через DatabaseManager
+        users = _db.load_users()  # Все пользователи из JSON через DatabaseManager
+    except DatabaseError as e:
+        # Логирование ошибки загрузки пользователей
+        logging.getLogger('database').error(
+            f"Ошибка загрузки пользователей для получения текущего: {e}"
+        )
+        raise  # Проброс исключения дальше
+    
+    # Поиск пользователя по ID среди загруженных данных
     for data in users:
         if data["user_id"] == CURRENT_USER_ID:
-            return deserialize_user(data)
-    return None  # Не найден (редкий случай)
+            return deserialize_user(data)  # Десериализация в объект User
+    
+    return None  # Пользователь не найден (редкий случай, например, удален из системы)
 
 """
 Бизнес-логика: работа с пользователями и портфелями.
 """
 
-def _load_portfolios_from_db() -> List[Dict]:
-    """Загрузка портфелей через DatabaseManager.
+# Функции _load_portfolios_from_db и _save_portfolios_to_db удалены,
+# так как теперь напрямую используем методы DatabaseManager: 
+# _db.load_portfolios() и _db.save_portfolios()
+
+# def _load_portfolios_from_db() -> List[Dict]:
+#     """Загрузка портфелей через DatabaseManager.
     
-    Returns:
-        Список словарей с данными портфелей
-    """
-    return _db.load_portfolios()
+#     Returns:
+#         Список словарей с данными портфелей
+#     """
+#     return _db.load_portfolios()
 
-# def save_portfolios(portfolios: List[Dict]) -> None:  # Сохранение
-#     """Сохранение портфелей."""
-#     with open(PORTFOLIOS_FILE, 'w', encoding='utf-8') as f:  # Запись
-#         json.dump(portfolios, f, indent=2, ensure_ascii=False)  # Форматированный JSON
-def _save_portfolios_to_db(portfolios: List[Dict]) -> None:
-    """Сохранение портфелей через DatabaseManager.
+# # def save_portfolios(portfolios: List[Dict]) -> None:  # Сохранение
+# #     """Сохранение портфелей."""
+# #     with open(PORTFOLIOS_FILE, 'w', encoding='utf-8') as f:  # Запись
+# #         json.dump(portfolios, f, indent=2, ensure_ascii=False)  # Форматированный JSON
+# def _save_portfolios_to_db(portfolios: List[Dict]) -> None:
+#     """Сохранение портфелей через DatabaseManager.
+#     Args:
+#         portfolios: Список словарей с данными портфелей
+#     """
+#     _db.save_portfolios(portfolios)
+
+
+def load_user(user_id: int) -> Optional[User]:
+    """Загрузка пользователя по идентификатору.
+    
     Args:
-        portfolios: Список словарей с данными портфелей
+        user_id: Уникальный идентификатор пользователя
+        
+    Returns:
+        Optional[User]: Объект пользователя или None если не найден
+        
+    Raises:
+        DatabaseError: При ошибках загрузки данных пользователей
     """
-    _db.save_portfolios(portfolios)
-
-
-def load_user(user_id: int) -> Optional[User]:  # Загрузка по ID
-    """Загрузка пользователя."""
-    ## users = load_users()             # Список из JSON
-    users = _db.load_users()  # Загрузка текущих пользователей через DatabaseManager
-
-    for u in users:                  # Перебор записей. Поиск совпадения
+    try:
+        # Загрузка всех пользователей через DatabaseManager
+        users = _db.load_users()  # Загрузка текущих пользователей через DatabaseManager
+    except DatabaseError as e:
+        # Логирование ошибки загрузки пользователей
+        logging.getLogger('database').error(
+            f"Ошибка загрузки пользователей для ID {user_id}: {e}"
+        )
+        raise  # Проброс исключения дальше
+    
+    # Поиск пользователя по ID среди загруженных данных
+    for u in users:  # Перебор записей пользователей
         if u['user_id'] == user_id:
-            return deserialize_user(u)  # Стандартный десериализатор
-    return None                      # Пользователь не найден
+            return deserialize_user(u)  # Стандартный десериализатор Dict → User
+    
+    return None  # Пользователь не найден
 
-
-def load_portfolio(user_id: int) -> Optional[Portfolio]:  # Полная десериализация
-    """Загрузка портфеля."""
-    # portfolios = load_portfolios()   # Список портфелей
-    portfolios = _load_portfolios_from_db()   # Список портфелей через DatabaseManager
-
-    for p in portfolios:             # Поиск по user_id
+def load_portfolio(user_id: int) -> Optional[Portfolio]:
+    """Загрузка портфеля пользователя по идентификатору.
+    
+    Args:
+        user_id: Уникальный идентификатор пользователя
+        
+    Returns:
+        Optional[Portfolio]: Объект портфеля или None если не найден
+        
+    Raises:
+        DatabaseError: При ошибках загрузки данных портфелей
+    """
+    try:
+        # Загрузка всех портфелей через DatabaseManager
+        portfolios = _db.load_portfolios()  # Список портфелей через DatabaseManager
+    except DatabaseError as e:
+        # Логирование ошибки загрузки портфелей
+        logging.getLogger('database').error(
+            f"Ошибка загрузки портфелей для пользователя {user_id}: {e}"
+        )
+        raise  # Проброс исключения дальше
+    
+    # Поиск портфеля по ID пользователя среди загруженных данных
+    for p in portfolios:  # Поиск по user_id
         if p['user_id'] == user_id:
-            return deserialize_portfolio(p, user_id)  # ✅ OOP-first
-    return None                      # Отсутствует
-
+            return deserialize_portfolio(p, user_id)  # Десериализация Dict → Portfolio
+    
+    return None  # Портфель не найден
 
 def get_portfolio(user_id: int) -> Portfolio:
     """
@@ -254,26 +355,60 @@ def get_portfolio(user_id: int) -> Portfolio:
     
     return portfolio  # Возврат портфеля (нового или загруженного)
 
-def save_portfolio(portfolio: Portfolio) -> None:  # Объект → JSON
-    """Сохранение портфеля."""
-    # portfolios = load_portfolios()   # Текущий список
-    portfolios = _load_portfolios_from_db()   # Текущий список через DatabaseManager
-
-    portfolio_data = serialize_portfolio(portfolio)  # ✅ Сериализация
+def save_portfolio(portfolio: Portfolio) -> None:
+    """Сохранение портфеля пользователя.
     
-    for i, p in enumerate(portfolios):  # Поиск позиции
-        if p['user_id'] == portfolio.user_id:  # Замена существующего
-            portfolios[i] = portfolio_data  # Обновление
-            
-            ## save_portfolios(portfolios)  # Атомарное сохранение
-            _save_portfolios_to_db(portfolios)  # Атомарное сохранение через DatabaseManager
-            return                   # Готово
-            
-    portfolios.append(portfolio_data)  # Новый портфель
+    Args:
+        portfolio: Объект портфеля для сохранения
+        
+    Raises:
+        DatabaseError: При ошибках загрузки или сохранения данных портфелей
+        ValutaTradeError: При системных ошибках сохранения портфеля
+    """
+    try:
+        # Загрузка текущих портфелей через DatabaseManager
+        portfolios = _db.load_portfolios()  # Текущий список портфелей
+    except DatabaseError as e:
+        # Логирование ошибки загрузки портфелей
+        logging.getLogger('database').error(
+            f"Ошибка загрузки портфелей для сохранения: {e}"
+        )
+        raise ValutaTradeError(f"Системная ошибка при сохранении портфеля: {e}") from e
     
-    ## save_portfolios(portfolios)      # Финальное сохранение
-    _save_portfolios_to_db(portfolios)  # Атомарное сохранение через DatabaseManager
-
+    # Сериализация объекта портфеля в словарь для JSON
+    portfolio_data = serialize_portfolio(portfolio)  # Portfolio → Dict
+    
+    # Поиск существующего портфеля пользователя для обновления
+    for i, p in enumerate(portfolios):  # Перебор портфелей с индексами
+        if p['user_id'] == portfolio.user_id:  # Замена существующего портфеля
+            portfolios[i] = portfolio_data  # Обновление данных портфеля
+            
+            try:
+                # Атомарное сохранение обновленного списка портфелей
+                _db.save_portfolios(portfolios)  # Сохранение через DatabaseManager
+            except DatabaseError as e:
+                # Логирование ошибки сохранения портфелей
+                logging.getLogger('database').error(
+                    f"Ошибка сохранения портфеля пользователя {portfolio.user_id}: {e}"
+                )
+                raise ValutaTradeError(
+                    f"Системная ошибка при обновлении портфеля: {e}"
+                ) from e
+            return  # Успешное завершение операции обновления
+    
+    # Если портфель не найден, добавляем новый
+    portfolios.append(portfolio_data)  # Добавление нового портфеля в список
+    
+    try:
+        # Атомарное сохранение списка портфелей с новым элементом
+        _db.save_portfolios(portfolios)  # Сохранение через DatabaseManager
+    except DatabaseError as e:
+        # Логирование ошибки сохранения портфелей
+        logging.getLogger('database').error(
+            f"Ошибка сохранения нового портфеля пользователя {portfolio.user_id}: {e}"
+        )
+        raise ValutaTradeError(f"Системная ошибка при создании портфеля: {e}") from e
+    
 def create_empty_portfolio(user_id: int) -> Portfolio:
     """
     Фабрика для создания пустого портфеля с базовым USD кошельком.
@@ -548,16 +683,13 @@ def get_rate(from_currency: str, to_currency: str) -> tuple[float, str, str, boo
     Raises:
         CurrencyNotFoundError: Если одна из валют не поддерживается
         ApiRequestError: Если требуется обновление курса но API недоступно
+        DatabaseError: При ошибках загрузки или сохранения данных курсов
+        ValutaTradeError: При системных ошибках получения курса
     """
-    from datetime import datetime
-    from .currencies import get_currency
-    from .exceptions import CurrencyNotFoundError, ApiRequestError
-    from ..infra.database import DatabaseManager
-    
     # 1. ВАЛИДАЦИЯ КОДОВ ВАЛЮТ ЧЕРЕЗ get_currency()
     try:
-        from_curr_obj = get_currency(from_currency)  # Получение объекта валюты
-        to_curr_obj = get_currency(to_currency)
+        from_curr_obj = get_currency(from_currency)  # Получение объекта исходной валюты
+        to_curr_obj = get_currency(to_currency)      # Получение объекта целевой валюты
     except CurrencyNotFoundError:
         raise  # Пробрасываем исключение дальше для обработки в CLI
     
@@ -565,9 +697,16 @@ def get_rate(from_currency: str, to_currency: str) -> tuple[float, str, str, boo
     from_code = from_curr_obj.code
     to_code = to_curr_obj.code
     
-    # 2. ЗАГРУЗКА КУРСОВ ИЗ БАЗЫ ЧЕРЕЗ DatabaseManager
-    db = DatabaseManager()  # Получение экземпляра синглтона
-    rates = db.load_rates()  # Загрузка всех курсов из rates.json
+    # 2. ЗАГРУЗКА КУРСОВ ИЗ БАЗЫ ЧЕРЕЗ DatabaseManager (используем глобальный экземпляр _db)
+    try:
+        rates = _db.load_rates()  # Загрузка всех курсов из rates.json через DatabaseManager
+    except DatabaseError as e:
+        # Логирование ошибки загрузки курсов
+        logging.getLogger('database').error(
+            f"Ошибка загрузки курсов валют для пары {from_code}_{to_code}: {e}"
+        )
+        # При ошибке загрузки курсов используем fallback на статические данные
+        rates = {}  # Пустой словарь как fallback для продолжения обработки
     
     # Формирование ключа пары в формате "FROM_TO"
     pair = f"{from_code}_{to_code}"
@@ -580,7 +719,14 @@ def get_rate(from_currency: str, to_currency: str) -> tuple[float, str, str, boo
         
         if rate_value is not None and timestamp != 'N/A':
             # 4. ПРОВЕРКА СВЕЖЕСТИ ДАННЫХ ЧЕРЕЗ is_rate_fresh()
-            is_fresh = is_rate_fresh(pair, timestamp)
+            try:
+                is_fresh = is_rate_fresh(pair, timestamp)
+            except Exception as freshness_error:
+                # Ошибка проверки свежести - считаем данные устаревшими
+                logging.getLogger('database').warning(
+                    f"Ошибка проверки свежести курса {pair}: {freshness_error}"
+                )
+                is_fresh = False
             
             if is_fresh:
                 # Курс свежий - возвращаем как есть
@@ -597,13 +743,26 @@ def get_rate(from_currency: str, to_currency: str) -> tuple[float, str, str, boo
                         'rate': updated_rate,
                         'updated_at': updated_timestamp
                     }
-                    db.save_rates(rates)  # Сохранение обновлённых данных
+                    try:
+                        _db.save_rates(rates)  # Сохранение обновлённых данных через DatabaseManager
+                    except DatabaseError as save_error:
+                        # Логирование ошибки сохранения обновленных курсов
+                        logging.getLogger('database').error(
+                            f"Ошибка сохранения обновленного курса {pair}: {save_error}"
+                        )
+                        # Продолжаем с устаревшими данными
+                        return (float(rate_value), timestamp, "rates.json (stale)", False)
                     
                     return (updated_rate, updated_timestamp, "API", True)
                     
                 except Exception as api_error:
                     # API недоступно - возвращаем устаревшие данные с пометкой
                     return (float(rate_value), timestamp, "rates.json (stale)", False)
+        else:
+            # Данные курса неполные (отсутствует rate или timestamp)
+            logging.getLogger('database').warning(
+                f"Неполные данные курса для пары {pair}: rate={rate_value}, timestamp={timestamp}"
+            )
     
     # 6. FALLBACK: РАСЧЁТ ЧЕРЕЗ СТАТИЧЕСКИЕ КУРСЫ
     # Получение статических курсов из Portfolio.EXCHANGE_RATES
@@ -623,8 +782,15 @@ def get_rate(from_currency: str, to_currency: str) -> tuple[float, str, str, boo
 def generate_test_rates(test_scenario: str = "mixed") -> None:
     """
     Генератор тестовых данных для rates.json с разными временными метками.
-    returns:
-        None: Сохраняет данные в data/rates.json
+    Args:
+        test_scenario: Сценарий генерации данных ("mixed", "all_fresh", 
+                      "all_stale", "invalid", "empty")        
+    Returns:
+        None: Сохраняет данные в rates.json через DatabaseManager
+    Raises:
+        ValueError: При неизвестном сценарии генерации
+        DatabaseError: При ошибках сохранения данных курсов
+        ValutaTradeError: При системных ошибках сохранения тестовых данных
     """
     from datetime import datetime, timedelta
     
@@ -687,9 +853,22 @@ def generate_test_rates(test_scenario: str = "mixed") -> None:
         test_rates["last_refresh"] = current_time.isoformat()
         test_rates["test_scenario"] = test_scenario
     
-    # Сохранение данных в rates.json
-    _save_rates_to_file(test_rates)
-
+    try:
+        # Сохранение тестовых данных через DatabaseManager с атомарным backup
+        _db.save_rates(test_rates)
+    except DatabaseError as e:
+        # Логирование ошибки сохранения тестовых данных курсов
+        logging.getLogger('database').error(
+            f"Ошибка сохранения тестовых курсов для сценария {test_scenario}: {e}"
+        )
+        raise ValutaTradeError(
+            f"Системная ошибка при сохранении тестовых данных: {e}"
+        ) from e
+    
+    # Дополнительный вывод для информирования пользователя
+    print(f"✅ Тестовые данные сохранены через DatabaseManager")
+    print(f"   Сценарий: {test_scenario}")
+    print(f"   Записей курсов: {len([k for k in test_rates.keys() if '_' in k])}")
 
 def _generate_realistic_rate(currency_pair: str) -> float:
     """
