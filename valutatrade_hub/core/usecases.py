@@ -533,69 +533,92 @@ def sell_currency(user_id: int, currency_code: str, amount: float) -> None:
 def get_rate(from_currency: str, to_currency: str) -> tuple[float, str, str, bool]:
     """
     Получение курса валюты с проверкой свежести данных.
+    
     Args:
         from_currency: Исходная валюта (например, "USD")
         to_currency: Целевая валюта (например, "BTC")
+        
     Returns:
         tuple: (курс, timestamp, источник, is_fresh)
         - float: Прямой курс обмена
         - str: Время обновления или "N/A"
-        - str: Источник данных ("rates.json" или "Fallback")
+        - str: Источник данных ("rates.json", "API" или "Fallback")
         - bool: True если курс свежий, False если устарел
+        
+    Raises:
+        CurrencyNotFoundError: Если одна из валют не поддерживается
+        ApiRequestError: Если требуется обновление курса но API недоступно
     """
-    # Загрузка курсов из JSON или пустой словарь
-    ## rates = load_rates()
-    rates = _db.load_rates()  # Загрузка курсов через DatabaseManager
+    from datetime import datetime
+    from .currencies import get_currency
+    from .exceptions import CurrencyNotFoundError, ApiRequestError
+    from ..infra.database import DatabaseManager
     
-    # Нормализация кодов валют в верхний регистр
-    from_code = from_currency.upper()
-    to_code = to_currency.upper()
+    # 1. ВАЛИДАЦИЯ КОДОВ ВАЛЮТ ЧЕРЕЗ get_currency()
+    try:
+        from_curr_obj = get_currency(from_currency)  # Получение объекта валюты
+        to_curr_obj = get_currency(to_currency)
+    except CurrencyNotFoundError:
+        raise  # Пробрасываем исключение дальше для обработки в CLI
     
-    # Проверка поддержки обеих валют в EXCHANGE_RATES
-    if (from_code not in Portfolio.EXCHANGE_RATES or
-            to_code not in Portfolio.EXCHANGE_RATES):
-        raise ValueError("Валюта не поддерживается")
+    # Нормализация кодов валют (уже в верхнем регистре от get_currency)
+    from_code = from_curr_obj.code
+    to_code = to_curr_obj.code
     
-    # Формирование ключа пары (EUR_USD)
+    # 2. ЗАГРУЗКА КУРСОВ ИЗ БАЗЫ ЧЕРЕЗ DatabaseManager
+    db = DatabaseManager()  # Получение экземпляра синглтона
+    rates = db.load_rates()  # Загрузка всех курсов из rates.json
+    
+    # Формирование ключа пары в формате "FROM_TO"
     pair = f"{from_code}_{to_code}"
     
-    # Поиск данных в rates.json
-    rate_data = rates.get(pair, {})
-    timestamp = rate_data.get("updated_at", "N/A")
+    # 3. ПРОВЕРКА НАЛИЧИЯ ПАРЫ В RATES.JSON
+    if pair in rates:
+        rate_data = rates[pair]
+        rate_value = rate_data.get('rate')
+        timestamp = rate_data.get('updated_at', 'N/A')
+        
+        if rate_value is not None and timestamp != 'N/A':
+            # 4. ПРОВЕРКА СВЕЖЕСТИ ДАННЫХ ЧЕРЕЗ is_rate_fresh()
+            is_fresh = is_rate_fresh(pair, timestamp)
+            
+            if is_fresh:
+                # Курс свежий - возвращаем как есть
+                return (float(rate_value), timestamp, "rates.json", True)
+            else:
+                # Курс устарел - попытка обновить через API (заглушка)
+                try:
+                    # ЗАГЛУШКА: попытка получить обновлённый курс
+                    updated_rate = _fetch_rate_from_api(pair)
+                    updated_timestamp = datetime.now().isoformat()
+                    
+                    # 5. ОБНОВЛЕНИЕ КУРСА В БАЗЕ ДАННЫХ
+                    rates[pair] = {
+                        'rate': updated_rate,
+                        'updated_at': updated_timestamp
+                    }
+                    db.save_rates(rates)  # Сохранение обновлённых данных
+                    
+                    return (updated_rate, updated_timestamp, "API", True)
+                    
+                except Exception as api_error:
+                    # API недоступно - возвращаем устаревшие данные с пометкой
+                    return (float(rate_value), timestamp, "rates.json (stale)", False)
     
-    # Проверка наличия и свежести курса в rates.json
-    has_rate_in_json = pair in rates
-    is_fresh = False
-    direct_rate: float  # Явная аннотация типа для mypy
+    # 6. FALLBACK: РАСЧЁТ ЧЕРЕЗ СТАТИЧЕСКИЕ КУРСЫ
+    # Получение статических курсов из Portfolio.EXCHANGE_RATES
+    from_rate = Portfolio.EXCHANGE_RATES.get(from_code, 1.0)
+    to_rate = Portfolio.EXCHANGE_RATES.get(to_code, 1.0)
     
-    if has_rate_in_json and timestamp != "N/A":
-        # Проверка свежести курса через вспомогательную функцию
-        is_fresh = is_rate_fresh(pair, timestamp)
-    
-    # Выбор курса: свежий из JSON или fallback
-    if has_rate_in_json and is_fresh:
-        # Явное приведение типа, получение курса из JSON
-        rate_value = rate_data.get("rate")
-        if rate_value is None:
-            # Если в JSON нет rate, используем fallback
-            direct_rate = (Portfolio.EXCHANGE_RATES[to_code] / 
-                          Portfolio.EXCHANGE_RATES[from_code])
-            source = "Fallback"
-            timestamp = "N/A"
-            is_fresh = False
-        else:
-            # Явное преобразование в float
-            direct_rate = float(rate_value)
-            source = "rates.json"
+    if from_rate == 0:
+        # Защита от деления на ноль
+        fallback_rate = 0.0
     else:
-        # Fallback на статические курсы
-        direct_rate = (Portfolio.EXCHANGE_RATES[to_code] / 
-                      Portfolio.EXCHANGE_RATES[from_code])
-        source = "Fallback"
-        timestamp = "N/A"  # Для fallback нет timestamp
-        is_fresh = False   # Fallback всегда считается устаревшим
+        # Расчёт курса: целевая валюта / исходная валюта
+        fallback_rate = to_rate / from_rate
     
-    return (direct_rate, timestamp, source, is_fresh)
+    # 7. ВОЗВРАТ РЕЗУЛЬТАТА С FALLBACK ИНФОРМАЦИЕЙ
+    return (fallback_rate, "N/A", "Fallback (static)", False)
 
 def generate_test_rates(test_scenario: str = "mixed") -> None:
     """
@@ -732,60 +755,79 @@ def _save_rates_to_file(rates_data: dict) -> None:
 def is_rate_fresh(currency_pair: str, timestamp: str) -> bool:
     """
     Проверка актуальности курса валюты по времени обновления.
+    
     Args:
         currency_pair: Валютная пара в формате "EUR_USD"
         timestamp: Время обновления в ISO формате "2025-10-09T10:30:00"
+        
     Returns:
         bool: True если курс свежий, False если устарел
+        
+    Notes:
+        Использует TTL из SettingsLoader вместо статических констант
+        Все TTL настраиваются через конфигурацию SettingsLoader
     """
     from datetime import datetime, timedelta
+    from ..infra.settings import SettingsLoader
     
-    # ВНУТРЕННИЕ ПРОВЕРКИ КОРРЕКТНОСТИ ЛОГИКИ
-    # Эти assert'ы работают только в режиме разработки (python -O отключает)
+    # 1. ПРОВЕРКА ФОРМАТА ВХОДНЫХ ДАННЫХ
     if "_" not in currency_pair:  # Проверка формата валютной пары
-        # Assert для разработки + безопасный return для production
-        assert False, f"Неверный формат валютной пары: {currency_pair}"
-        return False  # Защита на случай отключенных assert
+        return False  # Некорректный формат → считаем устаревшим
     
     try:
         # Парсинг timestamp из строки ISO формата
         update_time = datetime.fromisoformat(timestamp)
     except (ValueError, TypeError):
-        # Некорректный timestamp
-        assert False, f"Некорректный формат timestamp: {timestamp}"
-        return False  # Защита на случай отключенных assert
+        return False  # Некорректный timestamp → считаем устаревшим
     
-    # Определение валюты из пары (первая часть до "_")
+    # 2. ПОЛУЧЕНИЕ TTL ИЗ SETTINGSLOADER
+    settings = SettingsLoader()  # Получение экземпляра синглтона
+    
+    # Получение TTL для фиатных валют (по умолчанию 24 часа)
+    fiat_ttl_seconds = settings.get('rates_ttl_fiat_seconds', 86400)
+    # Получение TTL для криптовалют (по умолчанию 5 минут)
+    crypto_ttl_seconds = settings.get('rates_ttl_crypto_seconds', 300)
+    # TTL по умолчанию для остальных валют (по умолчанию 30 минут)
+    default_ttl_seconds = settings.get('rates_ttl_default_seconds', 1800)
+    
+    # 3. ОПРЕДЕЛЕНИЕ ТИПА ВАЛЮТЫ
     base_currency = currency_pair.split("_")[0].upper()
     
-    # Константы времени свежести для разных типов валют
+    # Классификация валют (можно расширить в будущем)
     FIAT_CURRENCIES = {"USD", "EUR", "RUB"}  # Фиатные валюты
     CRYPTO_CURRENCIES = {"BTC", "ETH"}       # Криптовалюты
     
-    # Получение TTL из настроек через SettingsLoader
-    fiat_ttl_seconds = _settings.get('rates_ttl_fiat_seconds', 86400)  # 24 часа по умолчанию
-    crypto_ttl_seconds = _settings.get('rates_ttl_crypto_seconds', 300)  # 5 минут по умолчанию
-    
-    FIAT_FRESHNESS = timedelta(seconds=fiat_ttl_seconds)     # TTL для фиатных валют из настроек
-    CRYPTO_FRESHNESS = timedelta(seconds=crypto_ttl_seconds)  # TTL для криптовалют из настроек
-    DEFAULT_FRESHNESS = timedelta(minutes=30)  # 30 минут по умолчанию (оставляем константой)
-    
-    # ВАЛИДАЦИЯ ПОЛИТИКИ СВЕЖЕСТИ (assert для разработки)
-    assert "USD" in FIAT_CURRENCIES, "USD должен быть в фиатных валютах"
-    assert "BTC" in CRYPTO_CURRENCIES, "BTC должен быть в криптовалютах"
-    assert CRYPTO_FRESHNESS < FIAT_FRESHNESS, \
-        "Крипто должен быть строже фиата (5 мин < 24 часа)"
-    
-    # Выбор лимита свежести в зависимости от типа валюты
+    # 4. ВЫБОР ПРАВИЛЬНОГО TTL НА ОСНОВЕ ТИПА ВАЛЮТЫ
     if base_currency in FIAT_CURRENCIES:
-        freshness_limit = FIAT_FRESHNESS
+        # Фиатные валюты: USD, EUR, RUB
+        freshness_limit = timedelta(seconds=fiat_ttl_seconds)
     elif base_currency in CRYPTO_CURRENCIES:
-        freshness_limit = CRYPTO_FRESHNESS
+        # Криптовалюты: BTC, ETH
+        freshness_limit = timedelta(seconds=crypto_ttl_seconds)
     else:
-        freshness_limit = DEFAULT_FRESHNESS
+        # Все остальные валюты (если появятся новые)
+        freshness_limit = timedelta(seconds=default_ttl_seconds)
     
-    # Расчет времени, прошедшего с обновления
+    # 5. РАСЧЁТ ВРЕМЕНИ, ПРОШЕДШЕГО С ОБНОВЛЕНИЯ
     time_since_update = datetime.now() - update_time
     
-    # Проверка, не устарел ли курс
+    # 6. ПРОВЕРКА СВЕЖЕСТИ ДАННЫХ
+    # Если время с обновления меньше или равно лимиту свежести → курс свежий
     return time_since_update <= freshness_limit
+
+def _fetch_rate_from_api(pair: str) -> float:
+    """Заглушка для получения курса из внешнего API.
+    В будущем будет заменена на реальный запрос к Parser Service
+    Args:
+        pair: Валютная пара в формате "EUR_USD"
+    Returns:
+        float: Значение курса валюты
+    Raises:
+        ApiRequestError: Имитация ошибки API (заглушка)
+    """
+    from .exceptions import ApiRequestError
+    
+    # ЗАГЛУШКА: имитация запроса к внешнему API
+    # В реальной реализации здесь будет запрос к Parser Service
+    raise ApiRequestError("API временно недоступно (заглушка)")
+
