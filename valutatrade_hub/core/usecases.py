@@ -1,7 +1,6 @@
 """Логика регистрации/входа."""
 
 import json
-import os
 import secrets  # Стандартные библиотеки
 from datetime import datetime        # Парсинг дат ISO
 import logging
@@ -352,7 +351,7 @@ def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
         # Получение курса валюты к USD
         rate, timestamp, source, is_fresh = get_rate(currency_code, "USD")
         
-    except (CurrencyNotFoundError, ApiRequestError) as e:
+    except (CurrencyNotFoundError, ApiRequestError):
         # Fallback на статический курс из Portfolio.EXCHANGE_RATES при ошибках
         if currency_code in Portfolio.EXCHANGE_RATES:
             rate = Portfolio.EXCHANGE_RATES[currency_code]
@@ -426,14 +425,16 @@ def sell_currency(user_id: int, currency_code: str, amount: float) -> None:
     Args:
         user_id: Идентификатор пользователя
         currency_code: Код продаваемой валюты
-        amount: Сумма продажи в целевой валюте 
+        amount: Сумма продажи в целевой валюте  
     Raises:
         ValueError: При некорректных параметрах
         CurrencyNotFoundError: Если валюта не поддерживается
-        InsufficientFundsError: Если недостаточно средств для продажи  
+        InsufficientFundsError: Если недостаточно средств для продажи
+        ApiRequestError: Если не удалось получить актуальный курс   
     Note:
         Декорирован @log_action для автоматического логирования операции.
         В verbose режиме логируется дополнительная информация и время выполнения.
+        Использует get_rate() для получения актуального курса вместо статического EXCHANGE_RATES.
     """
     # Загрузка портфеля текущего пользователя
     portfolio = get_portfolio(user_id)
@@ -449,9 +450,37 @@ def sell_currency(user_id: int, currency_code: str, amount: float) -> None:
     if currency_code == 'USD':
         raise ValueError("Нельзя продать USD (это базовая валюта)")
     
-    # Валидация валюты через get_currency() - автоматически выбросит CurrencyNotFoundError
-    # Вызов функции без сохранения результата - достаточно для валидации
-    get_currency(currency_code)  # Если валюта неизвестна, выбросит CurrencyNotFoundError
+    # Получение объекта валюты для валидации и возможного использования
+    currency_obj = get_currency(currency_code)  # Может выбросить CurrencyNotFoundError
+    
+    # Получение актуального курса через get_rate()
+    try:
+        # Получение курса валюты к USD для расчёта выручки
+        rate, timestamp, source, is_fresh = get_rate(currency_code, "USD")
+        
+    except Exception as e:
+        # Локальный импорт исключений для избежания циклических зависимостей
+        from .exceptions import CurrencyNotFoundError, ApiRequestError
+        
+        # Проверка типа исключения для выбора стратегии fallback
+        if isinstance(e, CurrencyNotFoundError):
+            # Если валюта не найдена даже в статических курсах, пробрасываем исключение
+            raise CurrencyNotFoundError(currency_code)
+        elif isinstance(e, ApiRequestError):
+            # Используем fallback на статический курс из Portfolio.EXCHANGE_RATES
+            rate = Portfolio.EXCHANGE_RATES[currency_code]
+            source = "Fallback (статические курсы)"
+            timestamp = "N/A"
+            is_fresh = False
+            
+            # Логирование использования fallback курса
+            logging.getLogger('actions').warning(
+                f"Используется fallback курс для продажи {currency_code}/USD: {rate}",
+                extra={'currency': currency_code, 'rate': rate, 'source': source}
+            )
+        else:
+            # Для других исключений пробрасываем их дальше
+            raise
     
     # Получение целевого кошелька для продажи
     target_wallet = portfolio.get_wallet(currency_code)
@@ -476,18 +505,30 @@ def sell_currency(user_id: int, currency_code: str, amount: float) -> None:
             code=currency_code                # Код валюты
         )
     
-    # Расчёт дохода в USD от продажи (используем статический курс)
-    usd_income = amount * Portfolio.EXCHANGE_RATES[currency_code]
+    # Расчёт выручки в USD через полученный курс
+    usd_income = amount * rate
     
-    # Списание валюты с целевого кошелька
+    # Выполнение операции продажи
     target_wallet.withdraw(amount)
-    
-    # Начисление USD на базовый кошелёк
     usd_wallet.deposit(usd_income)
+    
+    # Дополнительное логирование информации о курсе и выручке
+    actions_logger = logging.getLogger('actions')
+    actions_logger.info(
+        f"Курс продажи {currency_code}/USD: {rate:.6f}, выручка: {usd_income:.2f} USD",
+        extra={
+            'rate': rate,
+            'rate_source': source,
+            'rate_fresh': is_fresh,
+            'rate_timestamp': timestamp,
+            'currency_name': currency_obj.name,
+            'usd_income': usd_income,
+            'sold_amount': amount
+        }
+    )
     
     # Сохранение обновлённого портфеля
     save_portfolio(portfolio)
-
 
 def get_rate(from_currency: str, to_currency: str) -> tuple[float, str, str, bool]:
     """
@@ -665,7 +706,6 @@ def _save_rates_to_file(rates_data: dict) -> None:
     Args:
         rates_data: Словарь с данными курсов
     """
-    import json
     from pathlib import Path
     
     # Создание директории data если не существует
