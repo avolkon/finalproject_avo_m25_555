@@ -267,12 +267,13 @@ def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
     portfolio = get_portfolio(user_id)  # Загрузка портфеля пользователя
     currency_code = currency_code.upper()  # Нормализация кода валюты
     if amount <= 0:
-        raise ValueError("Сумма должна быть положительной")
+        raise ValueError("""Некорректная сумма →
+    'amount' должен быть положительным числом""")
     if (currency_code not in Portfolio.EXCHANGE_RATES or
             currency_code == "USD"):
         raise ValueError("Неизвестная валюта или нельзя купить USD")
-    usd_wallet = portfolio.get_wallet("USD")  # Гарантированно существует
-    assert usd_wallet is not None
+    usd_wallet = portfolio.get_wallet("USD") 
+    assert usd_wallet is not None  # Гарантированно существует
     target_wallet = portfolio.get_wallet(currency_code)
     if target_wallet is None:
         portfolio.add_currency(currency_code)  # Создание кошелька если отсутствует
@@ -401,18 +402,7 @@ def get_rate(from_currency: str, to_currency: str) -> tuple[float, str, str, boo
 def generate_test_rates(test_scenario: str = "mixed") -> None:
     """
     Генератор тестовых данных для rates.json с разными временными метками.
-    
-    ВНИМАНИЕ: Только для тестирования! Перезаписывает production rates.json.
-    
-    Args:
-        test_scenario: Сценарий генерации данных:
-            - "all_fresh": Все курсы свежие (< 5 минут/24 часа)
-            - "all_stale": Все курсы устаревшие (> лимита свежести)
-            - "mixed": Смешанные данные (часть свежие, часть устаревшие)
-            - "invalid": Некорректные форматы timestamp
-            - "empty": Пустой rates.json
-    
-    Returns:
+    returns:
         None: Сохраняет данные в data/rates.json
     """
     from datetime import datetime, timedelta
@@ -541,58 +531,6 @@ def _save_rates_to_file(rates_data: dict) -> None:
     except Exception as e:
         print(f"❌ Ошибка сохранения rates.json: {e}")
         raise
-
-# def is_rate_fresh(currency_pair: str, timestamp: str) -> bool:
-#     """
-#     Проверка актуальности курса валюты по времени обновления.
-    
-#     Args:
-#         currency_pair: Валютная пара в формате "EUR_USD"
-#         timestamp: Время обновления в ISO формате "2025-10-09T10:30:00"
-        
-#     Returns:
-#         bool: True если курс свежий, False если устарел
-        
-#     Notes:
-#         - Фиатные валюты (USD, EUR, RUB): считаются свежими 24 часа
-#         - Криптовалюты (BTC, ETH): считаются свежими 5 минут
-#         - Остальные валюты: считаются свежими 30 минут
-#     """
-#     from datetime import datetime, timedelta  # Импорт внутри функции
-    
-#     if "_" not in currency_pair:  # Проверка формата валютной пары
-#         return False  # Некорректный формат → считаем устаревшим
-    
-#     try:
-#         # Парсинг timestamp из строки ISO формата
-#         update_time = datetime.fromisoformat(timestamp)
-#     except (ValueError, TypeError):
-#         return False  # Некорректный timestamp → считаем устаревшим
-    
-#     # Определение валюты из пары (первая часть до "_")
-#     base_currency = currency_pair.split("_")[0].upper()
-    
-#     # Константы времени свежести для разных типов валют
-#     FIAT_CURRENCIES = {"USD", "EUR", "RUB"}  # Фиатные валюты
-#     CRYPTO_CURRENCIES = {"BTC", "ETH"}       # Криптовалюты
-    
-#     FIAT_FRESHNESS = timedelta(hours=24)     # 24 часа для фиата
-#     CRYPTO_FRESHNESS = timedelta(minutes=5)  # 5 минут для крипто
-#     DEFAULT_FRESHNESS = timedelta(minutes=30)  # 30 минут по умолчанию
-    
-#     # Выбор лимита свежести в зависимости от типа валюты
-#     if base_currency in FIAT_CURRENCIES:
-#         freshness_limit = FIAT_FRESHNESS
-#     elif base_currency in CRYPTO_CURRENCIES:
-#         freshness_limit = CRYPTO_FRESHNESS
-#     else:
-#         freshness_limit = DEFAULT_FRESHNESS
-    
-#     # Расчет времени, прошедшего с обновления
-#     time_since_update = datetime.now() - update_time
-    
-#     # Проверка, не устарел ли курс
-#     return time_since_update <= freshness_limit
 
 def is_rate_fresh(currency_pair: str, timestamp: str) -> bool:
     """
