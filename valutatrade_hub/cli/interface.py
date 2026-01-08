@@ -109,9 +109,10 @@ def require_login() -> None:
 def buy_cli(currency: str, amount: float) -> None:
     """CLI обработка покупки валюты с детализированным выводом по ТЗ УЗ 222."""
     
-    require_login()  # Проверка сессии
+    require_login()  # Проверка активной сессии пользователя
     
     if CURRENT_USER_ID is None:
+        # Защита от None после require_login (двойная проверка)
         print("Сначала выполните login")
         return
     
@@ -119,11 +120,12 @@ def buy_cli(currency: str, amount: float) -> None:
         # 1. Загружаем портфель ДЛЯ ПОЛУЧЕНИЯ БАЛАНСА "БЫЛО"
         portfolio_before = get_portfolio(CURRENT_USER_ID)
         wallet_before = portfolio_before.get_wallet(currency)
+        # Если кошелька нет до покупки, баланс = 0.0
         balance_before = wallet_before.balance if wallet_before else 0.0
         
         # 2. Получаем курс для расчета стоимости
         rate_tuple = get_rate("USD", currency)
-        rate = rate_tuple[0]  # курс USD→currency
+        rate = rate_tuple[0]  # курс USD→currency (первый элемент кортежа)
         
         # 3. Выполняем покупку (основная бизнес-логика)
         buy_currency(CURRENT_USER_ID, currency, amount)
@@ -132,9 +134,11 @@ def buy_cli(currency: str, amount: float) -> None:
         cost_usd = amount * rate
         
         # 5. Вывод деталей операции по ТЗ (точный формат из примера)
-        print(f"Покупка выполнена: {amount:.4f} {currency} по курсу {rate:.2f} USD/{currency}")
+        print(f"Покупка выполнена: {amount:.4f} {currency} по курсу "
+              f"{rate:.2f} USD/{currency}")
         print("Изменения в портфеле:")
-        print(f"- {currency}: было {balance_before:.4f} → стало {balance_before + amount:.4f}")
+        print(f"- {currency}: было {balance_before:.4f} → стало "
+              f"{balance_before + amount:.4f}")
         print(f"Оценочная стоимость покупки: {cost_usd:,.2f} USD")
         
         # 6. Вывод обновленного портфеля (существующий функционал)
@@ -152,9 +156,10 @@ def buy_cli(currency: str, amount: float) -> None:
 def sell_cli(currency: str, amount: float) -> None:
     """CLI обработка продажи валюты с детализированным выводом по ТЗ УЗ 222."""
     
-    require_login()  # Проверка сессии
+    require_login()  # Проверка активной сессии пользователя
     
     if CURRENT_USER_ID is None:
+        # Защита от None после require_login (двойная проверка)
         print("Сначала выполните login")
         return
     
@@ -181,7 +186,7 @@ def sell_cli(currency: str, amount: float) -> None:
         
         # 4. Получаем курс для расчета выручки
         rate_tuple = get_rate(currency, "USD")
-        rate = rate_tuple[0]  # курс currency→USD
+        rate = rate_tuple[0]  # курс currency→USD (первый элемент кортежа)
         
         # 5. Выполняем продажу (основная бизнес-логика)
         sell_currency(CURRENT_USER_ID, currency, amount)
@@ -190,9 +195,11 @@ def sell_cli(currency: str, amount: float) -> None:
         revenue_usd = amount * rate
         
         # 7. Вывод деталей операции по ТЗ
-        print(f"Продажа выполнена: {amount:.4f} {currency} по курсу {rate:.2f} USD/{currency}")
+        print(f"Продажа выполнена: {amount:.4f} {currency} по курсу "
+              f"{rate:.2f} USD/{currency}")
         print("Изменения в портфеле:")
-        print(f"- {currency}: было {balance_before:.4f} → стало {balance_before - amount:.4f}")
+        print(f"- {currency}: было {balance_before:.4f} → стало "
+              f"{balance_before - amount:.4f}")
         print(f"Оценочная выручка: {revenue_usd:,.2f} USD")
         
         # 8. Вывод обновленного портфеля (существующий функционал)
@@ -206,7 +213,7 @@ def sell_cli(currency: str, amount: float) -> None:
         # Обработка всех остальных исключений
         print(f"Критическая ошибка: {e}")
         sys.exit(1)
-    
+            
     # Удалены дублирующиеся строки, т.к. операция продажи
     # уже выполняется в блоке try перед обработкой исключений.
     # # Выполнение продажи через бизнес-логику
