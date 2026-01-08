@@ -214,11 +214,8 @@ def get_rate_cli(from_currency: str, to_currency: str) -> None:
     # ISO: "2025-10-09T00:03:22" → "2025-10-09 00:03:22"
     human_timestamp = timestamp
     if timestamp != "N/A":
-        try:
-            # Заменяем T на пробел
-            human_timestamp = timestamp.replace("T", " ")
-        except:
-            human_timestamp = timestamp
+        # Заменяем T на пробел, если он есть в строке
+        human_timestamp = timestamp.replace("T", " ") if "T" in timestamp else timestamp
     
     # Прямой курс с 8 знаками после запятой по формату ТЗ
     print(f"Курс {from_currency}→{to_currency}: {direct_rate:.8f} (обновлено: {human_timestamp})")

@@ -24,3 +24,31 @@ build-backend = "poetry.core.masonry.api"
 [tool.ruff]
 line-length = 88
 target-version = "py311"
+
+[tool.valutatrade]
+
+# Настройки путей
+data_dir = "data"
+logs_dir = "logs"
+
+# Настройки валютных курсов
+rates_ttl_fiat_seconds = 86400    # 24 часа для фиатных валют
+rates_ttl_crypto_seconds = 300     # 5 минут для криптовалют
+default_base_currency = "USD"      # Валюта по умолчанию
+
+# Настройки логирования
+log_format = "detailed"            # "detailed" или "json"
+log_level = "INFO"
+log_max_size_mb = 10
+log_backup_count = 5
+
+# Настройки портфеля
+initial_usd_balance = 1000.0       # Начальный баланс USD при регистрации
+
+# Поддерживаемые валюты
+supported_currencies = ["USD", "EUR", "RUB", "BTC", "ETH"]
+
+# Настройки валидации
+min_password_length = 4
+max_password_length = 100
+min_amount = 0.00000001            # Минимальная сумма для операций
