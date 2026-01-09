@@ -2,11 +2,12 @@
 
 import json  # Стандартная библиотека для сериализации/десериализации
 import os
+
 # Класс datetime для парсинга/сериализации дат регистрации
 from datetime import datetime
 from pathlib import Path  # Объектно-ориентированный путь к файлам
 from typing import Any
-from valutatrade_hub.core.models import User  
+from valutatrade_hub.core.models import User
 
 # Требуется для сериализации/десериализации:
 # User → serialize_user() → dict → JSON
@@ -75,6 +76,7 @@ def serialize_user(user: User) -> dict[str, Any]:
         "registration_date": user.registration_date.isoformat(),
     }
 
+
 def deserialize_user(data: dict[str, Any]) -> User:
     """dict → User.
     Восстанавливает объект User из словаря ТЗ-формата из JSON
@@ -91,6 +93,7 @@ def deserialize_user(data: dict[str, Any]) -> User:
         data["salt"],
         datetime.fromisoformat(data["registration_date"]),
     )
+
 
 def load_rates() -> dict[str, dict[str, Any]]:
     """Загрузка курсов валют из rates.json."""
@@ -110,4 +113,3 @@ def load_rates() -> dict[str, dict[str, Any]]:
         # Некорректный JSON или структура → пустой fallback
         print(f"Предупреждение: повреждён rates.json: {e}")
         return {}  # Безопасный fallback без EXCHANGE_RATES
-

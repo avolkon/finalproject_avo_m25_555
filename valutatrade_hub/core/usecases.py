@@ -8,13 +8,13 @@ from typing import Dict, Optional, Any
 
 # Локальные импорты
 from .models import User, Portfolio
-from .utils import (deserialize_user, serialize_user)
+from .utils import deserialize_user, serialize_user
 from .currencies import get_currency
 from .exceptions import (
-    InsufficientFundsError, 
-    CurrencyNotFoundError, 
+    InsufficientFundsError,
+    CurrencyNotFoundError,
     ApiRequestError,
-    ValutaTradeError
+    ValutaTradeError,
 )
 
 # Импорт инфраструктурных компонентов
@@ -28,102 +28,112 @@ _db = DatabaseManager()
 
 CURRENT_USER_ID: Optional[int] = None  # Глобальная сессия пользователя
 
+
 def serialize_portfolio(portfolio: Portfolio) -> Dict:  # Сериализация → JSON
     """Сериализация портфеля."""
     return {
-        'user_id': portfolio.user_id,  # ID владельца
-        'wallets': {
-            code: {                  # Каждый кошелёк
-                'currency_code': wallet.currency_code,  # Код валюты
-                'balance': wallet.balance  # Баланс
+        "user_id": portfolio.user_id,  # ID владельца
+        "wallets": {
+            code: {  # Каждый кошелёк
+                "currency_code": wallet.currency_code,  # Код валюты
+                "balance": wallet.balance,  # Баланс
             }
             for code, wallet in portfolio.wallets.items()  # Перебор
-        }
+        },
     }
 
 
 def deserialize_portfolio(data: Dict[str, Any], user_id: int) -> Portfolio:
     """Десериализация портфеля из JSON в объект Portfolio."""
     portfolio = Portfolio(user_id)  # type: Portfolio  # Создание объекта портфеля
-    
-    wallets_data = data.get('wallets', {})  # type: Dict[str, Dict[str, Any]]
+
+    wallets_data = data.get("wallets", {})  # type: Dict[str, Dict[str, Any]]
     # Безопасное извлечение данных о кошельках
-    
+
     for currency_code, wallet_data in wallets_data.items():  # Итерация по всем валютам
         try:
             # ВАЛИДАЦИЯ И ПРИВЕДЕНИЕ ТИПА БАЛАНСА
-            balance = float(wallet_data['balance'])  # Преобразование строки/числа в float
-            
+            balance = float(
+                wallet_data["balance"]
+            )  # Преобразование строки/числа в float
+
             # СОЗДАНИЕ КОШЕЛЬКА С БАЛАНСОМ
             portfolio.add_currency(currency_code)  # Создаёт кошелёк с balance=0.0
-            
+
             # ПОЛУЧЕНИЕ И ПРОВЕРКА КОШЕЛЬКА
             wallet = portfolio.get_wallet(currency_code)
             if wallet is None:
                 # ЛОГИРОВАНИЕ КРИТИЧЕСКОЙ ОШИБКИ (невозможное состояние)
-                print(f"🚨 Критическая ошибка: кошелёк {currency_code} создан, но не найден")
+                print(
+                    f"🚨 Критическая ошибка: кошелёк {currency_code} создан, но не найден"
+                )
                 continue  # Пропуск этого кошелька
-            
+
             # УСТАНОВКА РЕАЛЬНОГО БАЛАНСА
             wallet.balance = balance  # type: ignore  # Игнор для mypy (Optional[Wallet])
-            
+
         except KeyError as e:
             # ОТСУТСТВИЕ ОБЯЗАТЕЛЬНОГО ПОЛЯ 'balance'
             print(f"⚠️ Отсутствует поле 'balance' для кошелька {currency_code}: {e}")
             continue  # Пропуск проблемного кошелька
-            
+
         except ValueError as e:
             # НЕВОЗМОЖНОСТЬ ПРЕОБРАЗОВАТЬ balance В float
             print(f"⚠️ Некорректный баланс для кошелька {currency_code}: {e}")
             continue  # Пропуск проблемного кошелька
-            
+
         except TypeError as e:
             # НЕПРАВИЛЬНЫЙ ТИП ДАННЫХ
             print(f"⚠️ Ошибка типа данных для кошелька {currency_code}: {e}")
             continue  # Пропуск проблемного кошелька
-    
+
     return portfolio  # Возврат полностью десериализованного объекта
+
 
 def _initialize_user_portfolio(user_id: int) -> None:
     """Инициализация портфеля нового пользователя с USD кошельком."""
-    portfolio = Portfolio(user_id)       # Создание объекта портфеля
-    portfolio.add_currency('USD')        # Добавление базовой валюты USD
-    
+    portfolio = Portfolio(user_id)  # Создание объекта портфеля
+    portfolio.add_currency("USD")  # Добавление базовой валюты USD
+
     # Загрузка текущих портфелей через DatabaseManager
     try:
         portfolios = _db.load_portfolios()  # Текущий список через DatabaseManager
     except DatabaseError as e:
         # Логирование ошибки загрузки портфелей
-        logging.getLogger('database').error(
+        logging.getLogger("database").error(
             f"Ошибка загрузки портфелей при инициализации пользователя {user_id}: {e}"
         )
-        raise ValutaTradeError(f"Системная ошибка при инициализации портфеля: {e}") from e
-    
+        raise ValutaTradeError(
+            f"Системная ошибка при инициализации портфеля: {e}"
+        ) from e
+
     portfolio_data = serialize_portfolio(portfolio)  # Преобразование объекта в словарь
-    
+
     # Проверка дублирования пользователей (защита от race condition)
-    if not any(p['user_id'] == user_id for p in portfolios):
+    if not any(p["user_id"] == user_id for p in portfolios):
         portfolios.append(portfolio_data)  # Добавление нового портфеля в список
-        
+
         try:
             # Атомарное сохранение через DatabaseManager с backup механизмом
             _db.save_portfolios(portfolios)
         except DatabaseError as e:
             # Логирование ошибки сохранения портфелей
-            logging.getLogger('database').error(
+            logging.getLogger("database").error(
                 f"Ошибка сохранения портфелей для пользователя {user_id}: {e}"
             )
-            raise ValutaTradeError(f"Системная ошибка при сохранении портфеля: {e}") from e
-        
+            raise ValutaTradeError(
+                f"Системная ошибка при сохранении портфеля: {e}"
+            ) from e
 
-@log_action(action='REGISTER')
+
+@log_action(action="REGISTER")
 def register_user(username: str, password: str) -> int:
     """Регистрация нового пользователя.
     Args:
         username: Имя пользователя для регистрации
         password: Пароль пользователя для хеширования
     Returns:
-        int: Уникальный идентификатор зарегистрированного пользователя 
+        int: Уникальный идентификатор зарегистрированного пользователя
     Raises:
         ValueError: Если имя пользователя занято или пароль некорректен
         DatabaseError: При ошибках работы с базой данных
@@ -137,44 +147,47 @@ def register_user(username: str, password: str) -> int:
         users = _db.load_users()  # Список словарей с данными пользователей
     except DatabaseError as e:
         # Логирование ошибки загрузки пользователей
-        logging.getLogger('database').error(f"Ошибка загрузки пользователей: {e}")
+        logging.getLogger("database").error(f"Ошибка загрузки пользователей: {e}")
         raise ValutaTradeError(f"Системная ошибка при регистрации: {e}") from e
-    
+
     # Проверка уникальности имени пользователя (регистронезависимая проверка по ТЗ)
     username_lower = username.lower()  # Приведение к нижнему регистру для сравнения
     if any(u["username"].lower() == username_lower for u in users):
         raise ValueError(f"Имя '{username}' уже занято")  # Точное сообщение из ТЗ
-    
+
     # Валидация пароля по ТЗ (длина не менее 4 символов)
     if len(password) < 4:
         raise ValueError("Пароль ≥4 символа")  # Точная формулировка ТЗ
-    
+
     # Генерация нового user_id: максимум существующих ID + 1 (или 1 если список пуст)
     user_id = max([u["user_id"] for u in users], default=0) + 1  # Инкремент ID
     salt = secrets.token_hex(4)  # Криптографически стойкая соль (8 байт в hex формате)
-    
+
     # Создание объекта User с временным пустым хешем пароля
     user = User(user_id, username, "", salt, datetime.now())  # OOP-first подход
     user.change_password(password)  # Хеширование пароля: sha256(password + salt)
-    
+
     # Сериализация User → Dict и добавление в список пользователей
     users.append(serialize_user(user))  # Использование стандартного сериализатора
-    
+
     try:
         # Атомарное сохранение обновленного списка пользователей через DatabaseManager
         _db.save_users(users)  # Сохранение с backup механизмом
     except DatabaseError as e:
         # Логирование ошибки сохранения пользователей
-        logging.getLogger('database').error(f"Ошибка сохранения пользователя {username}: {e}")
+        logging.getLogger("database").error(
+            f"Ошибка сохранения пользователя {username}: {e}"
+        )
         raise ValutaTradeError(f"Системная ошибка при сохранении данных: {e}") from e
-    
+
     # СОЗДАНИЕ НАЧАЛЬНОГО ПОРТФЕЛЯ С USD КОШЕЛЬКОМ
     portfolio = create_initial_portfolio(user_id)  # Создание портфеля через фабрику
     save_portfolio(portfolio)  # Явное сохранение портфеля в файл через DatabaseManager
-    
+
     return user_id  # Возврат ID нового пользователя для CLI
 
-@log_action(action='LOGIN')
+
+@log_action(action="LOGIN")
 def login_user(username: str, password: str) -> None:
     """Авторизация пользователя.
     Args:
@@ -193,66 +206,70 @@ def login_user(username: str, password: str) -> None:
         users = _db.load_users()  # Все пользователи из JSON через DatabaseManager
     except DatabaseError as e:
         # Логирование ошибки загрузки пользователей
-        logging.getLogger('database').error(f"Ошибка загрузки пользователей при входе: {e}")
+        logging.getLogger("database").error(
+            f"Ошибка загрузки пользователей при входе: {e}"
+        )
         raise ValutaTradeError(f"Системная ошибка при входе: {e}") from e
-    
+
     # Поиск пользователя по имени (регистронезависимый поиск)
     for user_data in users:  # Перебор всех записей пользователей
         if user_data["username"].lower() == username.lower():  # Case-insensitive поиск
             user = deserialize_user(user_data)  # Dict → User объект (OOP паттерн)
-            
+
             if user.verify_password(password):  # Проверка хеша пароля
                 global CURRENT_USER_ID  # Модификация глобальной сессии
                 CURRENT_USER_ID = user.user_id  # Установка текущего пользователя
                 print(f"Вы вошли как '{username}'")  # Сообщение об успешном входе
                 return  # Успешный ранний возврат
-            
+
             raise ValueError("Неверный пароль")  # Неправильный пароль
-    
+
     raise ValueError("Пользователь не найден")  # Пользователь не найден в системе
+
 
 def get_current_user() -> User | None:
     """Получить текущего залогиненного пользователя.
-    
+
     Returns:
         User | None: Объект пользователя или None если сессия не активна
                     или пользователь не найден
-                    
+
     Raises:
         DatabaseError: При ошибках загрузки данных пользователей
     """
     # Проверка наличия активной пользовательской сессии
     if CURRENT_USER_ID is None:
         return None  # Нет активной сессии
-    
+
     try:
         # Загрузка всех пользователей через DatabaseManager
         users = _db.load_users()  # Все пользователи из JSON через DatabaseManager
     except DatabaseError as e:
         # Логирование ошибки загрузки пользователей
-        logging.getLogger('database').error(
+        logging.getLogger("database").error(
             f"Ошибка загрузки пользователей для получения текущего: {e}"
         )
         raise  # Проброс исключения дальше
-    
+
     # Поиск пользователя по ID среди загруженных данных
     for data in users:
         if data["user_id"] == CURRENT_USER_ID:
             return deserialize_user(data)  # Десериализация в объект User
-    
+
     return None  # Пользователь не найден (редкий случай, например, удален из системы)
+
 
 """
 Бизнес-логика: работа с пользователями и портфелями.
 """
 
 # Функции _load_portfolios_from_db и _save_portfolios_to_db удалены,
-# так как теперь напрямую используем методы DatabaseManager: 
+# так как теперь напрямую используем методы DatabaseManager:
 # _db.load_portfolios() и _db.save_portfolios()
 
 # def _load_portfolios_from_db() -> List[Dict]:
 #     """Загрузка портфелей через DatabaseManager.
-    
+
 #     Returns:
 #         Список словарей с данными портфелей
 #     """
@@ -272,13 +289,13 @@ def get_current_user() -> User | None:
 
 def load_user(user_id: int) -> Optional[User]:
     """Загрузка пользователя по идентификатору.
-    
+
     Args:
         user_id: Уникальный идентификатор пользователя
-        
+
     Returns:
         Optional[User]: Объект пользователя или None если не найден
-        
+
     Raises:
         DatabaseError: При ошибках загрузки данных пользователей
     """
@@ -287,27 +304,28 @@ def load_user(user_id: int) -> Optional[User]:
         users = _db.load_users()  # Загрузка текущих пользователей через DatabaseManager
     except DatabaseError as e:
         # Логирование ошибки загрузки пользователей
-        logging.getLogger('database').error(
+        logging.getLogger("database").error(
             f"Ошибка загрузки пользователей для ID {user_id}: {e}"
         )
         raise  # Проброс исключения дальше
-    
+
     # Поиск пользователя по ID среди загруженных данных
     for u in users:  # Перебор записей пользователей
-        if u['user_id'] == user_id:
+        if u["user_id"] == user_id:
             return deserialize_user(u)  # Стандартный десериализатор Dict → User
-    
+
     return None  # Пользователь не найден
+
 
 def load_portfolio(user_id: int) -> Optional[Portfolio]:
     """Загрузка портфеля пользователя по идентификатору.
-    
+
     Args:
         user_id: Уникальный идентификатор пользователя
-        
+
     Returns:
         Optional[Portfolio]: Объект портфеля или None если не найден
-        
+
     Raises:
         DatabaseError: При ошибках загрузки данных портфелей
     """
@@ -316,17 +334,18 @@ def load_portfolio(user_id: int) -> Optional[Portfolio]:
         portfolios = _db.load_portfolios()  # Список портфелей через DatabaseManager
     except DatabaseError as e:
         # Логирование ошибки загрузки портфелей
-        logging.getLogger('database').error(
+        logging.getLogger("database").error(
             f"Ошибка загрузки портфелей для пользователя {user_id}: {e}"
         )
         raise  # Проброс исключения дальше
-    
+
     # Поиск портфеля по ID пользователя среди загруженных данных
     for p in portfolios:  # Поиск по user_id
-        if p['user_id'] == user_id:
+        if p["user_id"] == user_id:
             return deserialize_portfolio(p, user_id)  # Десериализация Dict → Portfolio
-    
+
     return None  # Портфель не найден
+
 
 def get_portfolio(user_id: int) -> Portfolio:
     """
@@ -340,19 +359,20 @@ def get_portfolio(user_id: int) -> Portfolio:
     """
     # Попытка загрузить существующий портфель из хранилища
     portfolio = load_portfolio(user_id)
-    
+
     if portfolio is None:  # Если портфель не найден
         # Использование фабрики для создания нового портфеля
         portfolio = create_empty_portfolio(user_id)
-    
+
     return portfolio  # Возврат портфеля (нового или загруженного)
+
 
 def save_portfolio(portfolio: Portfolio) -> None:
     """Сохранение портфеля пользователя.
-    
+
     Args:
         portfolio: Объект портфеля для сохранения
-        
+
     Raises:
         DatabaseError: При ошибках загрузки или сохранения данных портфелей
         ValutaTradeError: При системных ошибках сохранения портфеля
@@ -362,45 +382,46 @@ def save_portfolio(portfolio: Portfolio) -> None:
         portfolios = _db.load_portfolios()  # Текущий список портфелей
     except DatabaseError as e:
         # Логирование ошибки загрузки портфелей
-        logging.getLogger('database').error(
+        logging.getLogger("database").error(
             f"Ошибка загрузки портфелей для сохранения: {e}"
         )
         raise ValutaTradeError(f"Системная ошибка при сохранении портфеля: {e}") from e
-    
+
     # Сериализация объекта портфеля в словарь для JSON
     portfolio_data = serialize_portfolio(portfolio)  # Portfolio → Dict
-    
+
     # Поиск существующего портфеля пользователя для обновления
     for i, p in enumerate(portfolios):  # Перебор портфелей с индексами
-        if p['user_id'] == portfolio.user_id:  # Замена существующего портфеля
+        if p["user_id"] == portfolio.user_id:  # Замена существующего портфеля
             portfolios[i] = portfolio_data  # Обновление данных портфеля
-            
+
             try:
                 # Атомарное сохранение обновленного списка портфелей
                 _db.save_portfolios(portfolios)  # Сохранение через DatabaseManager
             except DatabaseError as e:
                 # Логирование ошибки сохранения портфелей
-                logging.getLogger('database').error(
+                logging.getLogger("database").error(
                     f"Ошибка сохранения портфеля пользователя {portfolio.user_id}: {e}"
                 )
                 raise ValutaTradeError(
                     f"Системная ошибка при обновлении портфеля: {e}"
                 ) from e
             return  # Успешное завершение операции обновления
-    
+
     # Если портфель не найден, добавляем новый
     portfolios.append(portfolio_data)  # Добавление нового портфеля в список
-    
+
     try:
         # Атомарное сохранение списка портфелей с новым элементом
         _db.save_portfolios(portfolios)  # Сохранение через DatabaseManager
     except DatabaseError as e:
         # Логирование ошибки сохранения портфелей
-        logging.getLogger('database').error(
+        logging.getLogger("database").error(
             f"Ошибка сохранения нового портфеля пользователя {portfolio.user_id}: {e}"
         )
         raise ValutaTradeError(f"Системная ошибка при создании портфеля: {e}") from e
-    
+
+
 def create_empty_portfolio(user_id: int) -> Portfolio:
     """
     Фабрика для создания пустого портфеля с базовым USD кошельком.
@@ -414,11 +435,12 @@ def create_empty_portfolio(user_id: int) -> Portfolio:
     """
     if not isinstance(user_id, int):  # Проверка типа user_id
         raise TypeError("user_id должен быть целым числом")
-    
-    portfolio = Portfolio(user_id)     # Создание объекта портфеля
-    portfolio.add_currency('USD')      # Добавление базовой валюты USD
-    
-    return portfolio                   # Возврат готового портфеля
+
+    portfolio = Portfolio(user_id)  # Создание объекта портфеля
+    portfolio.add_currency("USD")  # Добавление базовой валюты USD
+
+    return portfolio  # Возврат готового портфеля
+
 
 def create_initial_portfolio(user_id: int) -> Portfolio:
     """
@@ -435,10 +457,11 @@ def create_initial_portfolio(user_id: int) -> Portfolio:
     """
     # Использование фабричной функции для создания портфеля
     portfolio = create_empty_portfolio(user_id)
-    
+
     return portfolio  # Возврат созданного портфеля без сохранения
 
-@log_action(action='BUY', verbose=True)
+
+@log_action(action="BUY", verbose=True)
 def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
     """Покупка валюты за USD.
     Args:
@@ -449,7 +472,7 @@ def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
         ValueError: При некорректных параметрах
         CurrencyNotFoundError: Если валюта не поддерживается
         InsufficientFundsError: Если недостаточно USD на балансе
-        ApiRequestError: Если не удалось получить актуальный курс  
+        ApiRequestError: Если не удалось получить актуальный курс
     Note:
         Декорирован @log_action для автоматического логирования операции.
         В verbose режиме логируется дополнительная информация и время выполнения.
@@ -457,96 +480,98 @@ def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
     """
     # Загрузка портфеля пользователя
     portfolio = get_portfolio(user_id)
-    
+
     # Нормализация кода валюты в верхний регистр
     currency_code = currency_code.upper()
-    
+
     # Проверка что сумма покупки положительная
     if amount <= 0:
         raise ValueError("""Некорректная сумма →
     'amount' должен быть положительным числом""")
-    
+
     # Проверка что не пытаются купить USD за USD
     if currency_code == "USD":
         raise ValueError("Нельзя купить USD за USD")
-    
+
     # Получение объекта валюты для валидации и возможного использования
     currency_obj = get_currency(currency_code)  # Может выбросить CurrencyNotFoundError
     # Получение актуального курса через get_rate()
     try:
         # Получение курса валюты к USD
         rate, timestamp, source, is_fresh = get_rate(currency_code, "USD")
-        
+
     except (CurrencyNotFoundError, ApiRequestError) as e:
         # Логирование ошибки получения курса
-        logging.getLogger('actions').warning(
+        logging.getLogger("actions").warning(
             f"Ошибка получения курса {currency_code}/USD: {e}"
         )
         # Завершение операции - без курса покупка невозможна
-        raise  # Проброс исключения дальше     
+        raise  # Проброс исключения дальше
     # Получение USD кошелька (гарантировано get_portfolio)
     usd_wallet = portfolio.get_wallet("USD")
-    
+
     # Защита от None - USD кошелёк всегда должен существовать
     if usd_wallet is None:
         raise ValueError("Критическая ошибка: USD кошелёк отсутствует")
-    
+
     # Получение или создание кошелька для целевой валюты
     target_wallet = portfolio.get_wallet(currency_code)
     if target_wallet is None:
         # Создание кошелька если отсутствует
         portfolio.add_currency(currency_code)
         target_wallet = portfolio.get_wallet(currency_code)
-    
+
     # Защита от None после создания кошелька
     if target_wallet is None:
-        raise ValueError(f"Критическая ошибка: не удалось создать кошелёк {currency_code}")
-    
+        raise ValueError(
+            f"Критическая ошибка: не удалось создать кошелёк {currency_code}"
+        )
+
     # Расчёт стоимости покупки в USD через полученный курс
     usd_cost = amount * rate
-    
+
     # Проверка достаточности средств на USD кошельке
     if usd_wallet.balance < usd_cost:
         raise InsufficientFundsError(
             available=usd_wallet.balance,  # Доступный баланс USD
-            required=usd_cost,             # Требуемая сумма USD
-            code="USD"                     # Код валюты операции (USD)
+            required=usd_cost,  # Требуемая сумма USD
+            code="USD",  # Код валюты операции (USD)
         )
-    
+
     # Выполнение операции покупки
     usd_wallet.withdraw(usd_cost)
     target_wallet.deposit(amount)
-    
+
     # Дополнительное логирование информации о курсе в действиях
-    actions_logger = logging.getLogger('actions')
+    actions_logger = logging.getLogger("actions")
     actions_logger.info(
         f"Курс {currency_code}/USD: {rate:.6f}, источник: {source}",
         extra={
-            'rate': rate,
-            'rate_source': source,
-            'rate_fresh': is_fresh,
-            'rate_timestamp': timestamp,
-            'currency_name': currency_obj.name,
-            'usd_cost': usd_cost
-        }
+            "rate": rate,
+            "rate_source": source,
+            "rate_fresh": is_fresh,
+            "rate_timestamp": timestamp,
+            "currency_name": currency_obj.name,
+            "usd_cost": usd_cost,
+        },
     )
-    
+
     # Сохранение обновлённого портфеля
     save_portfolio(portfolio)
 
 
-@log_action(action='SELL', verbose=True)
+@log_action(action="SELL", verbose=True)
 def sell_currency(user_id: int, currency_code: str, amount: float) -> None:
     """Продажа валюты: списать целевую, начислить USD.
     Args:
         user_id: Идентификатор пользователя
         currency_code: Код продаваемой валюты
-        amount: Сумма продажи в целевой валюте  
+        amount: Сумма продажи в целевой валюте
     Raises:
         ValueError: При некорректных параметрах
         CurrencyNotFoundError: Если валюта не поддерживается
         InsufficientFundsError: Если недостаточно средств для продажи
-        ApiRequestError: Если не удалось получить актуальный курс   
+        ApiRequestError: Если не удалось получить актуальный курс
     Note:
         Декорирован @log_action для автоматического логирования операции.
         В verbose режиме логируется дополнительная информация и время выполнения.
@@ -554,110 +579,115 @@ def sell_currency(user_id: int, currency_code: str, amount: float) -> None:
     """
     # Загрузка портфеля текущего пользователя
     portfolio = get_portfolio(user_id)
-    
+
     # Нормализация кода валюты в верхний регистр
     currency_code = currency_code.upper()
-    
+
     # Валидация: сумма должна быть положительной
     if amount <= 0:
         raise ValueError("Сумма должна быть положительной")
-    
+
     # Валидация: нельзя продать USD (это базовая валюта)
-    if currency_code == 'USD':
+    if currency_code == "USD":
         raise ValueError("Нельзя продать USD (это базовая валюта)")
-    
+
     # Получение объекта валюты для валидации и возможного использования
     currency_obj = get_currency(currency_code)  # Может выбросить CurrencyNotFoundError
-    
+
     # Получение актуального курса через get_rate()
-        # Получение актуального курса через get_rate()
+    # Получение актуального курса через get_rate()
     try:
         # Получение курса валюты к USD для расчёта выручки
         rate, timestamp, source, is_fresh = get_rate(currency_code, "USD")
 
-            # Проверка свежести курса согласно ТЗ4
+        # Проверка свежести курса согласно ТЗ4
         if not is_fresh:
-            actions_logger = logging.getLogger('actions')
+            actions_logger = logging.getLogger("actions")
             actions_logger.warning(
                 f"Курс {currency_code}/USD устарел (обновлён: {timestamp})",
                 extra={
-                    'currency': currency_code,
-                    'timestamp': timestamp,
-                    'source': source,
-                    'suggestion': "Выполните update-rates для актуальных данных"
-                }
+                    "currency": currency_code,
+                    "timestamp": timestamp,
+                    "source": source,
+                    "suggestion": "Выполните update-rates для актуальных данных",
+                },
             )
             # По ТЗ: "Core честно говорит пользователю, что данные устарели"
-            print(f"⚠️ Внимание: курс {currency_code} может быть устаревшим (обновлён: {timestamp})")
-            
+            print(
+                f"⚠️ Внимание: курс {currency_code} может быть устаревшим (обновлён: {timestamp})"
+            )
+
     except (CurrencyNotFoundError, ApiRequestError) as e:
         # Логирование ошибки получения курса
-        logging.getLogger('actions').warning(
+        logging.getLogger("actions").warning(
             f"Ошибка получения курса {currency_code}/USD: {e}"
         )
         # Завершение операции - без курса продажа невозможна
         raise  # Проброс исключения дальше
-    
+
     # Получение целевого кошелька для продажи
     target_wallet = portfolio.get_wallet(currency_code)
-    
+
     # Защита от None: кошелёк должен существовать для продажи
     if target_wallet is None:
-        raise ValueError(f"У вас нет кошелька '{currency_code}'. "
-                         f"Добавьте валюту: она создаётся автоматически при первой покупке.")
-    
+        raise ValueError(
+            f"У вас нет кошелька '{currency_code}'. "
+            f"Добавьте валюту: она создаётся автоматически при первой покупке."
+        )
+
     # Получение USD кошелька (гарантировано get_portfolio)
-    usd_wallet = portfolio.get_wallet('USD')
-    
+    usd_wallet = portfolio.get_wallet("USD")
+
     # Защита от None для mypy (кошелёк USD всегда должен существовать)
     if usd_wallet is None:
         raise ValueError("Критическая ошибка: USD кошелёк отсутствует")
-    
+
     # Проверка достаточности баланса целевой валюты
     if target_wallet.balance < amount:
         raise InsufficientFundsError(
             available=target_wallet.balance,  # Доступный баланс
-            required=amount,                  # Требуемая сумма
-            code=currency_code                # Код валюты
+            required=amount,  # Требуемая сумма
+            code=currency_code,  # Код валюты
         )
-    
+
     # Расчёт выручки в USD через полученный курс
     usd_income = amount * rate
-    
+
     # Выполнение операции продажи
     target_wallet.withdraw(amount)
     usd_wallet.deposit(usd_income)
-    
+
     # Дополнительное логирование информации о курсе и выручке
-    actions_logger = logging.getLogger('actions')
+    actions_logger = logging.getLogger("actions")
     actions_logger.info(
         f"Курс продажи {currency_code}/USD: {rate:.6f}, выручка: {usd_income:.2f} USD",
         extra={
-            'rate': rate,
-            'rate_source': source,
-            'rate_fresh': is_fresh,
-            'rate_timestamp': timestamp,
-            'currency_name': currency_obj.name,
-            'usd_income': usd_income,
-            'sold_amount': amount
-        }
+            "rate": rate,
+            "rate_source": source,
+            "rate_fresh": is_fresh,
+            "rate_timestamp": timestamp,
+            "currency_name": currency_obj.name,
+            "usd_income": usd_income,
+            "sold_amount": amount,
+        },
     )
-    
+
     # Сохранение обновлённого портфеля
     save_portfolio(portfolio)
+
 
 def get_rate(from_currency: str, to_currency: str) -> tuple[float, str, str, bool]:
     """
     Получение курса валюты с проверкой свежести данных.
     Args:
         from_currency: Исходная валюта (например, "USD")
-        to_currency: Целевая валюта (например, "BTC") 
+        to_currency: Целевая валюта (например, "BTC")
     Returns:
         tuple: (курс, timestamp, источник, is_fresh)
         - float: Прямой курс обмена
         - str: Время обновления или "N/A"
         - str: Источник данных (например, "CoinGecko", "ExchangeRate-API", "Fallback")
-        - bool: True если курс свежий, False если устарел 
+        - bool: True если курс свежий, False если устарел
     Raises:
         CurrencyNotFoundError: Если одна из валют не поддерживается
         ApiRequestError: Если требуется обновление курса но API недоступно
@@ -670,90 +700,90 @@ def get_rate(from_currency: str, to_currency: str) -> tuple[float, str, str, boo
         to_curr_obj = get_currency(to_currency)
     except CurrencyNotFoundError:
         raise
-    
+
     from_code = from_curr_obj.code
     to_code = to_curr_obj.code
     pair = f"{from_code}_{to_code}"
-    
-        # 2. ПОПЫТКА ПОЛУЧИТЬ КУРС ИЗ PARSER SERVICE
+
+    # 2. ПОПЫТКА ПОЛУЧИТЬ КУРС ИЗ PARSER SERVICE
     try:
         from valutatrade_hub.parser_service import RatesCache
-        
+
         cache = RatesCache("data/rates.json")
         rate_info = cache.get_rate(from_code, to_code)
-        
+
         if rate_info is not None:
             source_display = f"Parser Service ({rate_info.source})"
-            
+
             # Логирование
-            logger = logging.getLogger('rates')
+            logger = logging.getLogger("rates")
             if rate_info.is_fresh:
-                logger.debug(f"Свежий курс {pair}: {rate_info.rate} от {rate_info.source}")
+                logger.debug(
+                    f"Свежий курс {pair}: {rate_info.rate} от {rate_info.source}"
+                )
             else:
                 # ⭐⭐⭐ ВОТ ТУТ ДОБАВЛЯЕМ ПРЕДЛОЖЕНИЕ ОБНОВИТЬ ⭐⭐⭐
                 logger.warning(
                     f"Устаревший курс {pair} от {rate_info.source}. "
                     f"Обновите через: python -m valutatrade_hub.cli update-rates"
                 )
-            
+
             return (
                 rate_info.rate,
                 rate_info.updated_at,
                 source_display,
-                rate_info.is_fresh
+                rate_info.is_fresh,
             )
-            
+
     except ImportError:
         # Parser Service не установлен - тихое логирование
         pass
     except Exception as e:
-        logging.getLogger('rates').warning(f"Ошибка Parser Service для {pair}: {type(e).__name__}")
-    
+        logging.getLogger("rates").warning(
+            f"Ошибка Parser Service для {pair}: {type(e).__name__}"
+        )
+
     # 3. FALLBACK НА СТАРУЮ ЛОГИКУ (ДЛЯ ОБРАТНОЙ СОВМЕСТИМОСТИ)
-    logger = logging.getLogger('rates')
-    
+    logger = logging.getLogger("rates")
+
     try:
         rates = _db.load_rates()
-        
+
         if pair in rates:
             rate_data = rates[pair]
-            rate_value = rate_data.get('rate')
-            timestamp = rate_data.get('updated_at', 'N/A')
-            
-            if rate_value is not None and timestamp != 'N/A':
+            rate_value = rate_data.get("rate")
+            timestamp = rate_data.get("updated_at", "N/A")
+
+            if rate_value is not None and timestamp != "N/A":
                 is_fresh = is_rate_fresh(pair, timestamp)
                 source = "rates.json (legacy)"
-                
+
                 if not is_fresh:
                     source = "rates.json (legacy, stale)"
                     logger.info(f"Устаревший курс из legacy файла: {pair}")
-                
+
                 return (float(rate_value), timestamp, source, is_fresh)
-                
+
     except DatabaseError as e:
         logger.error(f"Ошибка загрузки legacy курсов для {pair}: {e}")
     except Exception as e:
         logger.debug(f"Ошибка legacy fallback для {pair}: {type(e).__name__}")
-    
+
         # 4. FINAL FALLBACK: ГЕНЕРАЦИЯ РЕАЛИСТИЧНОГО КУРСА
     logger.info(f"Генерация реалистичного курса для {pair}")
-    
+
     # Используем вспомогательную функцию для генерации реалистичного курса
     fallback_rate = _generate_realistic_rate(pair)
-    
-    return (
-        fallback_rate,
-        "N/A",
-        "Fallback (генерация реалистичного курса)",
-        False
-    )
+
+    return (fallback_rate, "N/A", "Fallback (генерация реалистичного курса)", False)
+
 
 def generate_test_rates(test_scenario: str = "mixed") -> None:
     """
     Генератор тестовых данных для rates.json с разными временными метками.
     Args:
-        test_scenario: Сценарий генерации данных ("mixed", "all_fresh", 
-                      "all_stale", "invalid", "empty")        
+        test_scenario: Сценарий генерации данных ("mixed", "all_fresh",
+                      "all_stale", "invalid", "empty")
     Returns:
         None: Сохраняет данные в rates.json через DatabaseManager
     Raises:
@@ -762,14 +792,14 @@ def generate_test_rates(test_scenario: str = "mixed") -> None:
         ValutaTradeError: При системных ошибках сохранения тестовых данных
     """
     from datetime import datetime, timedelta
-    
+
     # Базовые валютные пары для тестирования
     currency_pairs = ["EUR_USD", "BTC_USD", "RUB_USD", "ETH_USD", "BTC_EUR"]
-    
+
     # Инициализация словаря для rates.json
     test_rates = {}
     current_time = datetime.now()
-    
+
     # Генерация timestamp для каждого сценария
     if test_scenario == "all_fresh":
         # Все курсы свежие (обновлены 1 минуту назад)
@@ -777,138 +807,142 @@ def generate_test_rates(test_scenario: str = "mixed") -> None:
         for pair in currency_pairs:
             test_rates[pair] = {
                 "rate": _generate_realistic_rate(pair),
-                "updated_at": timestamp.isoformat()
+                "updated_at": timestamp.isoformat(),
             }
-    
+
     elif test_scenario == "all_stale":
         # Все курсы устаревшие (обновлены 2 дня назад)
         timestamp = current_time - timedelta(days=2)
         for pair in currency_pairs:
             test_rates[pair] = {
                 "rate": _generate_realistic_rate(pair),
-                "updated_at": timestamp.isoformat()
+                "updated_at": timestamp.isoformat(),
             }
-    
+
     elif test_scenario == "mixed":
         # Смешанные данные: 2 свежих, 3 устаревших
         fresh_time = current_time - timedelta(minutes=1)
         stale_time = current_time - timedelta(days=2)
-        
+
         for i, pair in enumerate(currency_pairs):
             timestamp = fresh_time if i < 2 else stale_time
             test_rates[pair] = {
                 "rate": _generate_realistic_rate(pair),
-                "updated_at": timestamp.isoformat()
+                "updated_at": timestamp.isoformat(),
             }
-    
+
     elif test_scenario == "invalid":
         # Некорректные форматы timestamp для тестирования обработки ошибок
         for pair in currency_pairs:
             test_rates[pair] = {
                 "rate": _generate_realistic_rate(pair),
-                "updated_at": "2025-13-45T99:99:99"  # Некорректный формат
+                "updated_at": "2025-13-45T99:99:99",  # Некорректный формат
             }
-    
+
     elif test_scenario == "empty":
         # Пустой файл rates.json
         test_rates = {}
-    
+
     else:
         raise ValueError(f"Неизвестный сценарий: {test_scenario}")
-    
+
     # Добавление метаданных для идентификации тестовых данных
     if test_scenario != "empty":
         test_rates["source"] = "TestDataGenerator"
         test_rates["last_refresh"] = current_time.isoformat()
         test_rates["test_scenario"] = test_scenario
-    
+
     try:
         # Сохранение тестовых данных через DatabaseManager с атомарным backup
         _db.save_rates(test_rates)
     except DatabaseError as e:
         # Логирование ошибки сохранения тестовых данных курсов
-        logging.getLogger('database').error(
+        logging.getLogger("database").error(
             f"Ошибка сохранения тестовых курсов для сценария {test_scenario}: {e}"
         )
         raise ValutaTradeError(
             f"Системная ошибка при сохранении тестовых данных: {e}"
         ) from e
-    
+
     # Дополнительный вывод для информирования пользователя
     print("✅ Тестовые данные сохранены через DatabaseManager")
     print(f"   Сценарий: {test_scenario}")
     print(f"   Записей курсов: {len([k for k in test_rates.keys() if '_' in k])}")
 
+
 def _generate_realistic_rate(currency_pair: str) -> float:
     """
     Генерация реалистичного курса валюты.
-    
+
     Args:
         currency_pair: Валютная пара в формате "EUR_USD"
-        
+
     Returns:
         float: Реалистичный курс обмена
     """
     # СОБСТВЕННЫЙ СЛОВАРЬ РЕАЛИСТИЧНЫХ КУРСОВ
     REALISTIC_BASE_RATES = {
-        'BTC': 59337.21,   # Bitcoin к USD
-        'ETH': 3720.00,    # Ethereum к USD
-        'EUR': 1.0786,     # Euro к USD
-        'USD': 1.0,        # Базовая валюта
-        'RUB': 0.01016,    # Ruble к USD
-        'GBP': 1.2593,     # Pound к USD
-        'JPY': 0.0067,     # Yen к USD
-        'CNY': 0.1387,     # Yuan к USD
-        'SOL': 145.12      # Solana к USD
+        "BTC": 59337.21,  # Bitcoin к USD
+        "ETH": 3720.00,  # Ethereum к USD
+        "EUR": 1.0786,  # Euro к USD
+        "USD": 1.0,  # Базовая валюта
+        "RUB": 0.01016,  # Ruble к USD
+        "GBP": 1.2593,  # Pound к USD
+        "JPY": 0.0067,  # Yen к USD
+        "CNY": 0.1387,  # Yuan к USD
+        "SOL": 145.12,  # Solana к USD
     }
-    
+
     try:
         # Парсинг валютной пары
         from_curr, to_curr = currency_pair.split("_")
-        
+
         # Получение курсов из собственного словаря
         from_rate = REALISTIC_BASE_RATES.get(from_curr, 1.0)
         to_rate = REALISTIC_BASE_RATES.get(to_curr, 1.0)
-        
+
         # Расчет курса: to_currency / from_currency
         if from_rate == 0:
             return 0.0  # Защита от деления на ноль
         return round(to_rate / from_rate, 6)  # Округление для реалистичности
-    
+
     except (ValueError, KeyError):
         # Fallback: случайный реалистичный курс
         import random
+
         return round(random.uniform(0.5, 2.5), 4)
+
 
 def _save_rates_to_file(rates_data: dict) -> None:
     """
     Сохранение данных курсов в rates.json.
-    
+
     Args:
         rates_data: Словарь с данными курсов
     """
     from pathlib import Path
-    
+
     # Создание директории data если не существует
     data_dir = Path("data")
     data_dir.mkdir(exist_ok=True)
-    
+
     # Полный путь к файлу rates.json
     rates_file = data_dir / "rates.json"
-    
+
     try:
         # Сохранение данных в JSON с форматированием
-        with open(rates_file, 'w', encoding='utf-8') as f:
+        with open(rates_file, "w", encoding="utf-8") as f:
             json.dump(rates_data, f, indent=2, ensure_ascii=False)
-        
+
         print(f"✅ Тестовые данные сохранены в {rates_file}")
         print(f"   Сценарий: {rates_data.get('test_scenario', 'N/A')}")
         print(f"   Записей курсов: {len([k for k in rates_data.keys() 
                                       if not k.startswith('_')])}")
-    
+
     except Exception as e:
         print(f"❌ Ошибка сохранения rates.json: {e}")
         raise
+
 
 def is_rate_fresh(currency_pair: str, timestamp: str) -> bool:
     """
@@ -917,14 +951,16 @@ def is_rate_fresh(currency_pair: str, timestamp: str) -> bool:
     try:
         # ЛЕНИВЫЙ ИМПОРТ - только здесь
         from valutatrade_hub.parser_service import RatesCache
+
         cache = RatesCache("data/rates.json")
         return cache.is_fresh(currency_pair, timestamp)
     except Exception as e:
-        logging.getLogger('rates').warning(
+        logging.getLogger("rates").warning(
             f"Parser Service недоступен для проверки свежести: {type(e).__name__}"
         )
         return False
-    
+
+
 # def _fetch_rate_from_api(pair: str) -> float:
 #     """Заглушка для получения курса из внешнего API.
 #     В будущем будет заменена на реальный запрос к Parser Service
@@ -936,8 +972,7 @@ def is_rate_fresh(currency_pair: str, timestamp: str) -> bool:
 #         ApiRequestError: Имитация ошибки API (заглушка)
 #     """
 #     from .exceptions import ApiRequestError
-    
+
 #     # ЗАГЛУШКА: имитация запроса к внешнему API
 #     # В реальной реализации здесь будет запрос к Parser Service
 #     raise ApiRequestError("API временно недоступно (заглушка)")
-
