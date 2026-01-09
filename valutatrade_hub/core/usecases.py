@@ -4,7 +4,7 @@ import json
 import secrets  # Стандартные библиотеки
 from datetime import datetime        # Парсинг дат ISO
 import logging
-from typing import Dict, List, Optional, Any  # Типизация
+from typing import Dict, Optional, Any  # Типизация
 from .models import User, Portfolio  # Импорт моделей
 from .utils import (deserialize_user, serialize_user)
 from .currencies import get_currency
@@ -755,7 +755,7 @@ def get_rate(from_currency: str, to_currency: str) -> tuple[float, str, str, boo
                     
                     return (updated_rate, updated_timestamp, "API", True)
                     
-                except Exception as api_error:
+                except Exception:
                     # API недоступно - возвращаем устаревшие данные с пометкой
                     return (float(rate_value), timestamp, "rates.json (stale)", False)
         else:
@@ -866,7 +866,7 @@ def generate_test_rates(test_scenario: str = "mixed") -> None:
         ) from e
     
     # Дополнительный вывод для информирования пользователя
-    print(f"✅ Тестовые данные сохранены через DatabaseManager")
+    print("✅ Тестовые данные сохранены через DatabaseManager")
     print(f"   Сценарий: {test_scenario}")
     print(f"   Записей курсов: {len([k for k in test_rates.keys() if '_' in k])}")
 
