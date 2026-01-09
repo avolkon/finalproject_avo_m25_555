@@ -123,5 +123,168 @@ class BaseApiClient(ABC):
         raise ApiRequestError(
             f"{self.name}: неожиданная ошибка в _make_request()"
         )
+
+
+class CoinGeckoClient(BaseApiClient):
+    """Клиент для работы с CoinGecko API для получения курсов криптовалют."""
     
+    # Временные константы (будут перенесены в config.py в задаче 4.1.1)
+    COINGECKO_URL: str = "https://api.coingecko.com/api/v3/simple/price"
+    CRYPTO_CURRENCIES: list[str] = ["BTC", "ETH"]  # Поддерживаемые криптовалюты
+    CRYPTO_ID_MAP: Dict[str, str] = {
+        "BTC": "bitcoin",
+        "ETH": "ethereum"
+    }
     
+    def __init__(self, timeout: int = 10, max_retries: int = 1) -> None:
+        """Инициализация CoinGecko клиента.
+        
+        Args:
+            timeout: Таймаут запроса в секундах (по умолчанию 10)
+            max_retries: Максимальное количество повторных попыток (по умолчанию 1)
+            
+        Note:
+            Имя клиента фиксировано как "CoinGecko" для корректного логирования.
+        """
+        # Вызов конструктора родительского класса с фиксированным именем
+        super().__init__(name="CoinGecko", timeout=timeout, max_retries=max_retries)
+    
+    def fetch_rates(self) -> Dict[str, float]:
+        """Получить курсы криптовалют от CoinGecko API.
+        
+        Returns:
+            Словарь в формате {"CRYPTO_USD": rate}, например {"BTC_USD": 59337.21}
+            
+        Raises:
+            ApiRequestError: При ошибках API, сети или некорректных данных
+            
+        Note:
+            Метод преобразует коды валют (BTC) в CoinGecko IDs (bitcoin)
+            и парсит ответ API в стандартизированный формат.
+        """
+        # Логирование начала операции получения курсов
+        self.logger.info(
+            f"Запрос курсов для {len(self.CRYPTO_CURRENCIES)} криптовалют"
+        )
+        
+        # 1. Преобразование кодов валют в CoinGecko IDs
+        coin_ids: list[str] = []
+        for crypto_code in self.CRYPTO_CURRENCIES:
+            if crypto_code not in self.CRYPTO_ID_MAP:
+                # Ошибка если код валюты не найден в маппинге
+                raise ApiRequestError(f"Неизвестный код криптовалюты: {crypto_code}")
+            # Добавление соответствующего CoinGecko ID в список
+            coin_ids.append(self.CRYPTO_ID_MAP[crypto_code])
+        
+        # 2. Подготовка параметров запроса
+        params: Dict[str, str] = {
+            "ids": ",".join(coin_ids),  # Объединение ID через запятую
+            "vs_currencies": "usd"      # Базовая валюта - USD
+        }
+        
+        # 3. Выполнение запроса через родительский метод
+        response_data: Dict[str, Any] = self._make_request(
+            self.COINGECKO_URL, params
+        )
+        
+        # 4. Валидация и преобразование данных ответа
+        return self._parse_response(response_data)
+    
+    def _parse_response(self, data: Dict[str, Any]) -> Dict[str, float]:
+        """Парсинг ответа CoinGecko API в стандартизированный формат.
+        
+        Args:
+            data: Ответ API в формате {"bitcoin": {"usd": 59337.21}}
+            
+        Returns:
+            Словарь в формате {"BTC_USD": 59337.21}
+            
+        Raises:
+            ApiRequestError: При некорректной структуре ответа или данных
+            
+        Note:
+            Метод выполняет обратное преобразование: bitcoin -> BTC
+            и создаёт пары валют в формате BTC_USD.
+        """
+        rates: Dict[str, float] = {}  # Инициализация словаря для результатов
+        
+        # Проверка что ответ не пустой
+        if not data:
+            raise ApiRequestError("CoinGecko вернул пустой ответ")
+        
+        # Создание обратного маппинга: ID -> код валюты (bitcoin -> BTC)
+        id_to_code: Dict[str, str] = {
+            v: k for k, v in self.CRYPTO_ID_MAP.items()
+        }
+        
+        # Итерация по всем монетам в ответе API
+        for coin_id, price_data in data.items():
+            # Проверка структуры данных для каждой монеты
+            if not isinstance(price_data, dict) or "usd" not in price_data:
+                # Логирование предупреждения о некорректной структуре
+                self.logger.warning(f"Некорректная структура данных для {coin_id}")
+                continue  # Пропуск этой монеты, продолжение с следующей
+            
+            # Получение значения курса из ответа
+            rate: Any = price_data["usd"]
+            
+            # Валидация числового значения курса
+            if not self._validate_rate(rate, coin_id):
+                continue  # Пропуск невалидного курса
+            
+            # Преобразование CoinGecko ID в код валюты и создание пары
+            if coin_id in id_to_code:
+                crypto_code: str = id_to_code[coin_id]  # Преобразование: bitcoin -> BTC
+                pair_key: str = f"{crypto_code}_USD"    # Формирование ключа: BTC_USD
+                rates[pair_key] = float(rate)           # Добавление курса в результаты
+                self.logger.debug(f"Получен курс: {pair_key} = {rate}")
+            else:
+                # Логирование предупреждения о неизвестном ID
+                self.logger.warning(f"Неизвестный CoinGecko ID: {coin_id}")
+        
+        # Проверка что получены хотя бы некоторые курсы
+        if not rates:
+            raise ApiRequestError("Не удалось получить ни одного курса из CoinGecko")
+        
+        # Логирование успешного завершения операции
+        self.logger.info(f"Получено {len(rates)} курсов от CoinGecko")
+        return rates  # Возврат словаря с курсами
+    
+    def _validate_rate(self, rate: Any, coin_id: str) -> bool:
+        """Валидация числового значения курса.
+        
+        Args:
+            rate: Значение курса для проверки (любой тип)
+            coin_id: ID монеты для логирования в случае ошибки
+            
+        Returns:
+            True если курс валиден, False если нет
+            
+        Note:
+            Проверяет что курс является положительным числом
+            в разумных пределах для криптовалют.
+        """
+        try:
+            # Попытка преобразовать значение в float
+            rate_float: float = float(rate)
+            
+            # Проверка что курс положительный
+            if rate_float <= 0:
+                self.logger.warning(f"Неположительный курс для {coin_id}: {rate}")
+                return False
+            
+            # Проверка реалистичных пределов (курс не превышает 1 млн USD)
+            if rate_float > 1_000_000:
+                self.logger.warning(f"Слишком высокий курс для {coin_id}: {rate}")
+                return False
+            
+            return True  # Курс прошел все проверки
+            
+        except (ValueError, TypeError):
+            # Ошибка преобразования типа (не числовое значение)
+            self.logger.warning(
+                f"Некорректный тип курса для {coin_id}: {type(rate)}"
+            )
+            return False
+        
+        
