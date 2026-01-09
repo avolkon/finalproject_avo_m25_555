@@ -3,7 +3,9 @@ CLI интерфейс платформы.
 """
 
 import argparse  # Для парсинга аргументов командной строки
+import os
 import sys  # Для работы с системными аргументами
+from pathlib import Path
 from prettytable import PrettyTable  # Для красивого вывода таблиц
 
 from valutatrade_hub.core.usecases import (  # Импорт бизнес-логики
@@ -28,6 +30,24 @@ from valutatrade_hub.core.exceptions import (
     ApiRequestError,  # Исключение для ошибок API
 )
 
+BASE_DIR = Path(__file__).parent.parent
+CACHE_PATH = BASE_DIR / "data" / "rates.json"
+
+def safe_execute_command(command_func, *args, **kwargs):
+    """Безопасное выполнение CLI команд с обработкой ошибок."""
+    try:
+        return command_func(*args, **kwargs)
+    except KeyboardInterrupt:
+        print("\nОперация прервана пользователем")
+        sys.exit(0)
+    except (ValueError, CurrencyNotFoundError, InsufficientFundsError, ApiRequestError) as e:
+        # Ошибки бизнес-логики
+        print(f"Ошибка: {e}")
+        sys.exit(1)
+    except Exception as e:
+        # Непредвиденные ошибки
+        print(f"Критическая ошибка: {e}")
+        sys.exit(1)
 
 def create_parser() -> argparse.ArgumentParser:
     """Создать парсер аргументов командной строки."""
@@ -512,74 +532,55 @@ def cli_show_rates(
 
 def main(argv: list[str] | None = None) -> None:
     """Главная точка входа CLI."""
-    if argv is None:  # Проверка переданных аргументов
-        argv = sys.argv  # Использование системных аргументов по умолчанию
+    if argv is None:
+        argv = sys.argv
 
-    if len(argv) == 1:  # Проверка количества аргументов
-        print(
-            "Доступные команды: register, login, show-portfolio"
-        )  # Справка по командам
-        return  # Выход из программы
+    if len(argv) == 1:
+        print("Доступные команды: register, login, show-portfolio, buy, sell, get-rate, update-rates, show-rates")
+        return
 
-    parser = create_parser()  # Создание парсера аргументов
-    args = parser.parse_args(argv[1:])  # Парсинг аргументов командной строки
+    parser = create_parser()
+    args = parser.parse_args(argv[1:])
 
-    try:  # Блок обработки исключений
-        if args.command == "register":  # Обработка команды регистрации
-            uid = register_user(
-                args.username, args.password
-            )  # Регистрация возвращает userid
-            # Вывод сообщения об успешной регистрации
-            print(
-                f"Пользователь '{args.username}' зарегистрирован (id={uid}). "
-                f"Войдите: login --username {args.username} --password ****"
-            )
+    # Обработка команд с безопасным выполнением
+    try:
+        if args.command == "register":
+            uid = register_user(args.username, args.password)
+            print(f"Пользователь '{args.username}' зарегистрирован (id={uid}). "
+                  f"Войдите: login --username {args.username} --password ****")
 
-        elif args.command == "login":  # Обработка команды входа
-            login_user(args.username, args.password)  # Вызов функции входа
-            # login_user сам печатает сообщение об успешном входе
-            # и выбрасывает ValueError при ошибке
+        elif args.command == "login":
+            # login_user сам обрабатывает ошибки и выводит сообщения
+            login_user(args.username, args.password)
 
-        elif args.command == "show-portfolio":  # Обработка команды показа портфеля
-            show_portfolio(args.base)  # Вызов функции показа портфеля
+        elif args.command == "show-portfolio":
+            safe_execute_command(show_portfolio, args.base)
 
-        elif args.command == "buy":  # Обработка команды покупки валюты
-            buy_cli(args.currency, args.amount)
+        elif args.command == "buy":
+            safe_execute_command(buy_cli, args.currency, args.amount)
 
-        elif args.command == "sell":  # Обработка команды продажи валюты
-            sell_cli(args.currency, args.amount)
         elif args.command == "sell":
-            sell_cli(args.currency, args.amount)
+            safe_execute_command(sell_cli, args.currency, args.amount)
 
         elif args.command == "get-rate":
-            get_rate_cli(args.__getattribute__("from"), args.to)
+            safe_execute_command(get_rate_cli, args.__getattribute__("from"), args.to)
 
         elif args.command == "update-rates":
-            # Вызов с поддержкой фильтра по источнику
-            cli_update_rates(source=args.source)
+            safe_execute_command(cli_update_rates, args.source)
 
         elif args.command == "show-rates":
-            # Вызов с поддержкой всех фильтров
-            cli_show_rates(
-                currency=args.currency,
-                top=args.top,
-                base=args.base,
-            )
+            safe_execute_command(cli_show_rates, args.currency, args.top, args.base)
 
-    except (
-        ValueError,
-        CurrencyNotFoundError,
-        InsufficientFundsError,
-        ApiRequestError,
-    ) as e:
-        # Обработка пользовательских исключений и ошибок валидации
-        print(f"Ошибка: {e}")
-        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\nОперация прервана пользователем")
+        sys.exit(0)
+    except SystemExit:
+        # Пропускаем системные выходы (уже обработаны в safe_execute_command)
+        raise
     except Exception as e:
-        # Обработка всех остальных исключений
-        print(f"Критическая ошибка: {e}")
+        # Обработка непредвиденных ошибок при выборе команды
+        print(f"Критическая ошибка при обработке команды: {e}")
         sys.exit(1)
-
 
 if __name__ == "__main__":  # Проверка запуска как основного модуля
     main()  # Запуск основной функции
