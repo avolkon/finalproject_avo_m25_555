@@ -66,16 +66,35 @@ def create_parser() -> argparse.ArgumentParser:
     rate = subparsers.add_parser("get-rate")
     rate.add_argument("--from", required=True)  # Исходная валюта (USD)
     rate.add_argument("--to", required=True)  # Целевая валюта (BTC)
-    # Новые команды parser_service
-    update = subparsers.add_parser("update-rates", help="Обновить курсы валют")
+        # Команда update-rates с фильтром по источнику (ТЗ4 4.6.1)
+    update = subparsers.add_parser("update-rates", 
+                                   help="Обновить курсы валют")
     update.add_argument(
         "--source",
         choices=["coingecko", "exchangerate", "all"],
         default="all",
-        help="Источник (по умолчанию все)",
+        help="Источник для обновления (по умолчанию все)"
     )
 
-    show = subparsers
+    # Команда show-rates с фильтрацией (ТЗ4 4.6.2)
+    show_r = subparsers.add_parser("show-rates", 
+                                   help="Показать курсы из кэша")
+    show_r.add_argument(
+        "--currency",
+        type=str,
+        help="Фильтр по валюте (например, BTC)"
+    )
+    show_r.add_argument(
+        "--top",
+        type=int,
+        help="Показать N самых дорогих криптовалют"
+    )
+    show_r.add_argument(
+        "--base",
+        type=str,
+        default="USD",
+        help="Базовая валюта для расчета (по умолчанию USD)"
+    )
 
     return parser  # Возврат готового парсера
 
@@ -321,22 +340,34 @@ def get_rate_cli(from_currency: str, to_currency: str) -> None:
         sys.exit(1)
 
 
-def cli_update_rates() -> None:
-    """CLI-команда обновления курсов через Parser Service (update-rates)."""
+def cli_update_rates(source: str = "all") -> None:
+    """CLI-команда обновления курсов с фильтром по источнику."""
     try:
-        # Ленивая загрузка, чтобы не плодить зависимости при обычных командах
+        # Ленивая загрузка модулей Parser Service
         from valutatrade_hub.parser_service import RatesUpdater
     except ImportError as e:
         print(f"Parser Service недоступен: {e}")
-        print("Убедитесь, что модуль parser_service установлен и импортируется.")
+        print("Убедитесь, что модуль parser_service установлен.")
         sys.exit(1)
 
     try:
-        # Пустой список клиентов означает, что RatesUpdater сам создаст их
+        # Создание RatesUpdater с автоматической инициализацией клиентов
         updater = RatesUpdater(clients=[], cache_filepath="data/rates.json")
-        result = updater.run_update()
+        
+        result = None
+        if source in ["coingecko", "exchangerate"]:
+            # Выборочное обновление для одного источника
+            print(f"Обновление курсов из источника: {source}")
+            result = updater.run_update_for_source(
+                source_name="CoinGecko" if source == "coingecko" 
+                else "ExchangeRate"
+            )
+        else:
+            # Обновление из всех источников (по умолчанию)
+            print("Обновление курсов из всех источников")
+            result = updater.run_update()
 
-        # Человекочитаемый статус
+        # Форматирование статуса для пользователя
         status_map = {
             "SUCCESS": "УСПЕХ",
             "PARTIAL": "ЧАСТИЧНО",
@@ -347,15 +378,25 @@ def cli_update_rates() -> None:
         print(f"{status_display}: обновлено {result.total_rates} курсов")
 
         if result.updated_sources:
-            print("Источники (успешные): " + ", ".join(sorted(result.updated_sources)))
+            print("Источники (успешные): " + 
+                  ", ".join(sorted(result.updated_sources)))
         if result.failed_sources:
-            print("Источники (с ошибками): " + ", ".join(sorted(result.failed_sources)))
+            print("Источники (с ошибками): " + 
+                  ", ".join(sorted(result.failed_sources)))
+        
+        # Логирование ошибок если есть
         if result.error_messages:
             print("Ошибки:")
             for msg in result.error_messages:
                 print(f"- {msg}")
 
+    except ValueError as e:
+        # Ошибка валидации источника
+        print(f"Ошибка: {e}")
+        print("Доступные источники: coingecko, exchangerate, all")
+        sys.exit(1)
     except Exception as e:
+        # Общая ошибка обновления
         print(f"Ошибка обновления курсов: {e}")
         sys.exit(1)
 
@@ -365,73 +406,109 @@ def cli_show_rates(
     top: int | None = None,
     base: str = "USD",
 ) -> None:
-    """CLI-команда показа курсов из кэша (show-rates)."""
+    """CLI-команда показа курсов с фильтрацией и форматированием."""
     try:
         from valutatrade_hub.parser_service import RatesCache
     except ImportError as e:
         print(f"Parser Service недоступен: {e}")
-        print("Убедитесь, что модуль parser_service установлен и импортируется.")
+        print("Убедитесь, что модуль parser_service установлен.")
         sys.exit(1)
 
     try:
+        # Инициализация кэша курсов
         cache = RatesCache(filepath="data/rates.json")
-        all_rates = cache.get_all_rates()  # ожидается словарь пар -> dict
+        all_rates = cache.get_all_rates()
 
+        # Проверка на пустой кэш
         if not all_rates:
             print("Локальный кэш курсов пуст.")
             print("Выполните: python main.py update-rates")
             return
 
+        # Преобразование в список для фильтрации
         rows: list[tuple[str, dict]] = list(all_rates.items())
 
-        # Фильтрация по валюте (по подстроке в паре)
+        # Фильтрация по валюте (нечеткий поиск)
         if currency:
             cur_upper = currency.upper()
-            rows = [(pair, data) for pair, data in rows if cur_upper in pair.upper()]
+            rows = [(pair, data) for pair, data in rows 
+                    if cur_upper in pair.upper()]
 
-        # Сортировка и ограничение top
+        # Если нет результатов после фильтрации
+        if not rows and currency:
+            print(f"Курс для '{currency}' не найден в кеше.")
+            return
+
+        # Сортировка по курсу (по убыванию) для флага --top
         rows.sort(key=lambda x: x[1].get("rate", 0.0), reverse=True)
+        
+        # Ограничение количества результатов для --top
         if top is not None and top > 0:
             rows = rows[:top]
 
-        table = PrettyTable(["Пара", "Курс", "Обновлено", "Источник", "Свежий"])
+        # Создание форматированной таблицы с PrettyTable
+        table = PrettyTable()
+        table.field_names = ["Пара", "Курс", "Обновлено", "Источник", "Свежий"]
+        
+        # Выравнивание колонок для читаемости
+        table.align["Пара"] = "l"
+        table.align["Курс"] = "r"
+        table.align["Обновлено"] = "c"
+        table.align["Источник"] = "l"
+        table.align["Свежий"] = "c"
 
         for pair, data in rows:
             rate_raw = data.get("rate")
             updated_at = data.get("updated_at", "N/A")
             source = data.get("source", "N/A")
-            is_fresh = data.get("is_fresh", False)
+            
+            # Определение свежести данных через RatesCache
+            is_fresh = cache.is_fresh(pair, updated_at)
 
+            # Форматирование курса в зависимости от типа валюты
             rate_str: str
             if rate_raw is None:
-                # Явно обрабатываем отсутствие курса
                 rate_str = "N/A"
             else:
                 try:
                     rate_value = float(rate_raw)
-                    rate_str = f"{rate_value:.6f}"
+                    # Разное количество знаков для крипто и фиата
+                    if pair.startswith(("BTC_", "ETH_", "SOL_")):
+                        rate_str = f"{rate_value:,.6f}"
+                    else:
+                        rate_str = f"{rate_value:,.4f}"
                 except (TypeError, ValueError):
                     rate_str = "N/A"
 
+            # Форматирование времени (только HH:MM:SS из ISO)
             updated_short = updated_at
             if "T" in updated_short:
-                # Покажем только время, если формат ISO
-                updated_short = updated_short.split("T")[-1][:8]
+                try:
+                    # Извлечение только времени из ISO формата
+                    time_part = updated_short.split("T")[1]
+                    updated_short = time_part[:8]  # HH:MM:SS
+                except (IndexError, TypeError):
+                    updated_short = "N/A"
 
+            # Маркер свежести
             fresh_mark = "да" if is_fresh else "нет"
 
+            # Добавление строки в таблицу
             table.add_row([pair, rate_str, updated_short, source, fresh_mark])
 
+        # Вывод заголовка и таблицы
         print(f"Курсы (база расчёта: {base.upper()}):")
         print(table)
 
-        if not rows:
-            print("Нет курсов, удовлетворяющих фильтрам.")
+        # Информация о количестве результатов
+        if currency and len(rows) > 0:
+            print(f"Найдено {len(rows)} курсов по фильтру '{currency}'.")
+        elif top and len(rows) > 0:
+            print(f"Показано {len(rows)} самых дорогих криптовалют.")
 
     except Exception as e:
         print(f"Ошибка чтения кэша курсов: {e}")
         sys.exit(1)
-
 
 def main(argv: list[str] | None = None) -> None:
     """Главная точка входа CLI."""
@@ -478,9 +555,11 @@ def main(argv: list[str] | None = None) -> None:
             get_rate_cli(args.__getattribute__("from"), args.to)
 
         elif args.command == "update-rates":
-            cli_update_rates()
+            # Вызов с поддержкой фильтра по источнику
+            cli_update_rates(source=args.source)
 
         elif args.command == "show-rates":
+            # Вызов с поддержкой всех фильтров
             cli_show_rates(
                 currency=args.currency,
                 top=args.top,
