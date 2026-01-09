@@ -1,39 +1,31 @@
 """Логика регистрации/входа."""
 
 import json
-import secrets  # Стандартные библиотеки
-from datetime import datetime        # Парсинг дат ISO
+import secrets
+from datetime import datetime
 import logging
-from typing import Dict, Optional, Any  # Типизация
-from .models import User, Portfolio  # Импорт моделей
+from typing import Dict, Optional, Any
+
+# Локальные импорты
+from .models import User, Portfolio
 from .utils import (deserialize_user, serialize_user)
 from .currencies import get_currency
-# Импорт пользовательских исключений
 from .exceptions import (
     InsufficientFundsError, 
     CurrencyNotFoundError, 
     ApiRequestError,
     ValutaTradeError
 )
+
 # Импорт инфраструктурных компонентов
 from ..infra.settings import SettingsLoader
 from ..infra.database import DatabaseManager, DatabaseError
-# Импорт декоратора для логирования операций
 from ..decorators import log_action
 
 # Создание глобальных экземпляров синглтонов
 _settings = SettingsLoader()
 _db = DatabaseManager()
 
-# Глобальные экземпляры синглтонов уже созданы выше
-# DATA_DIR, USERS_FILE, PORTFOLIOS_FILE, RATES_FILE больше не нужны как константы
-# так как пути управляются через SettingsLoader и DatabaseManager
-
-# DATA_DIR = "data"                    # Директория данных
-# USERS_FILE = os.path.join(DATA_DIR, "users.json")  # Путь к пользователям
-# PORTFOLIOS_FILE = os.path.join(DATA_DIR, "portfolios.json")  # Путь к портфелям
-# # Константа пути к файлу курсов валют
-# RATES_FILE = os.path.join(DATA_DIR, "rates.json")
 CURRENT_USER_ID: Optional[int] = None  # Глобальная сессия пользователя
 
 def serialize_portfolio(portfolio: Portfolio) -> Dict:  # Сериализация → JSON
@@ -481,28 +473,19 @@ def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
     # Получение объекта валюты для валидации и возможного использования
     currency_obj = get_currency(currency_code)  # Может выбросить CurrencyNotFoundError
     
-    # Получение актуального курса через get_rate()
+        # Получение актуального курса через get_rate()
     try:
         # Получение курса валюты к USD
         rate, timestamp, source, is_fresh = get_rate(currency_code, "USD")
         
-    except (CurrencyNotFoundError, ApiRequestError):
-        # Fallback на статический курс из Portfolio.EXCHANGE_RATES при ошибках
-        if currency_code in Portfolio.EXCHANGE_RATES:
-            rate = Portfolio.EXCHANGE_RATES[currency_code]
-            source = "Fallback (статические курсы)"
-            timestamp = "N/A"
-            is_fresh = False
+    except (CurrencyNotFoundError, ApiRequestError) as e:
+        # Логирование ошибки получения курса
+        logging.getLogger('actions').warning(
+            f"Ошибка получения курса {currency_code}/USD: {e}"
+        )
+        # Завершение операции - без курса покупка невозможна
+        raise  # Проброс исключения дальше
             
-            # Логирование использования fallback курса
-            logging.getLogger('actions').warning(
-                f"Используется fallback курс для {currency_code}/USD: {rate}",
-                extra={'currency': currency_code, 'rate': rate, 'source': source}
-            )
-        else:
-            # Если валюта нет даже в статических курсах, пробрасываем исключение
-            raise CurrencyNotFoundError(currency_code)
-    
     # Получение USD кошелька (гарантировано get_portfolio)
     usd_wallet = portfolio.get_wallet("USD")
     
@@ -589,33 +572,33 @@ def sell_currency(user_id: int, currency_code: str, amount: float) -> None:
     currency_obj = get_currency(currency_code)  # Может выбросить CurrencyNotFoundError
     
     # Получение актуального курса через get_rate()
+        # Получение актуального курса через get_rate()
     try:
         # Получение курса валюты к USD для расчёта выручки
         rate, timestamp, source, is_fresh = get_rate(currency_code, "USD")
-        
-    except Exception as e:
-        # Локальный импорт исключений для избежания циклических зависимостей
-        from .exceptions import CurrencyNotFoundError, ApiRequestError
-        
-        # Проверка типа исключения для выбора стратегии fallback
-        if isinstance(e, CurrencyNotFoundError):
-            # Если валюта не найдена даже в статических курсах, пробрасываем исключение
-            raise CurrencyNotFoundError(currency_code)
-        elif isinstance(e, ApiRequestError):
-            # Используем fallback на статический курс из Portfolio.EXCHANGE_RATES
-            rate = Portfolio.EXCHANGE_RATES[currency_code]
-            source = "Fallback (статические курсы)"
-            timestamp = "N/A"
-            is_fresh = False
-            
-            # Логирование использования fallback курса
-            logging.getLogger('actions').warning(
-                f"Используется fallback курс для продажи {currency_code}/USD: {rate}",
-                extra={'currency': currency_code, 'rate': rate, 'source': source}
+
+            # Проверка свежести курса согласно ТЗ4
+        if not is_fresh:
+            actions_logger = logging.getLogger('actions')
+            actions_logger.warning(
+                f"Курс {currency_code}/USD устарел (обновлён: {timestamp})",
+                extra={
+                    'currency': currency_code,
+                    'timestamp': timestamp,
+                    'source': source,
+                    'suggestion': "Выполните update-rates для актуальных данных"
+                }
             )
-        else:
-            # Для других исключений пробрасываем их дальше
-            raise
+            # По ТЗ: "Core честно говорит пользователю, что данные устарели"
+            print(f"⚠️ Внимание: курс {currency_code} может быть устаревшим (обновлён: {timestamp})")
+            
+    except (CurrencyNotFoundError, ApiRequestError) as e:
+        # Логирование ошибки получения курса
+        logging.getLogger('actions').warning(
+            f"Ошибка получения курса {currency_code}/USD: {e}"
+        )
+        # Завершение операции - без курса продажа невозможна
+        raise  # Проброс исключения дальше
     
     # Получение целевого кошелька для продажи
     target_wallet = portfolio.get_wallet(currency_code)
@@ -668,18 +651,15 @@ def sell_currency(user_id: int, currency_code: str, amount: float) -> None:
 def get_rate(from_currency: str, to_currency: str) -> tuple[float, str, str, bool]:
     """
     Получение курса валюты с проверкой свежести данных.
-    
     Args:
         from_currency: Исходная валюта (например, "USD")
-        to_currency: Целевая валюта (например, "BTC")
-        
+        to_currency: Целевая валюта (например, "BTC") 
     Returns:
         tuple: (курс, timestamp, источник, is_fresh)
         - float: Прямой курс обмена
         - str: Время обновления или "N/A"
-        - str: Источник данных ("rates.json", "API" или "Fallback")
-        - bool: True если курс свежий, False если устарел
-        
+        - str: Источник данных (например, "CoinGecko", "ExchangeRate-API", "Fallback")
+        - bool: True если курс свежий, False если устарел 
     Raises:
         CurrencyNotFoundError: Если одна из валют не поддерживается
         ApiRequestError: Если требуется обновление курса но API недоступно
@@ -688,96 +668,87 @@ def get_rate(from_currency: str, to_currency: str) -> tuple[float, str, str, boo
     """
     # 1. ВАЛИДАЦИЯ КОДОВ ВАЛЮТ ЧЕРЕЗ get_currency()
     try:
-        from_curr_obj = get_currency(from_currency)  # Получение объекта исходной валюты
-        to_curr_obj = get_currency(to_currency)      # Получение объекта целевой валюты
+        from_curr_obj = get_currency(from_currency)
+        to_curr_obj = get_currency(to_currency)
     except CurrencyNotFoundError:
-        raise  # Пробрасываем исключение дальше для обработки в CLI
+        raise
     
-    # Нормализация кодов валют (уже в верхнем регистре от get_currency)
     from_code = from_curr_obj.code
     to_code = to_curr_obj.code
-    
-    # 2. ЗАГРУЗКА КУРСОВ ИЗ БАЗЫ ЧЕРЕЗ DatabaseManager (используем глобальный экземпляр _db)
-    try:
-        rates = _db.load_rates()  # Загрузка всех курсов из rates.json через DatabaseManager
-    except DatabaseError as e:
-        # Логирование ошибки загрузки курсов
-        logging.getLogger('database').error(
-            f"Ошибка загрузки курсов валют для пары {from_code}_{to_code}: {e}"
-        )
-        # При ошибке загрузки курсов используем fallback на статические данные
-        rates = {}  # Пустой словарь как fallback для продолжения обработки
-    
-    # Формирование ключа пары в формате "FROM_TO"
     pair = f"{from_code}_{to_code}"
     
-    # 3. ПРОВЕРКА НАЛИЧИЯ ПАРЫ В RATES.JSON
-    if pair in rates:
-        rate_data = rates[pair]
-        rate_value = rate_data.get('rate')
-        timestamp = rate_data.get('updated_at', 'N/A')
+        # 2. ПОПЫТКА ПОЛУЧИТЬ КУРС ИЗ PARSER SERVICE
+    try:
+        from valutatrade_hub.parser_service import RatesCache
         
-        if rate_value is not None and timestamp != 'N/A':
-            # 4. ПРОВЕРКА СВЕЖЕСТИ ДАННЫХ ЧЕРЕЗ is_rate_fresh()
-            try:
-                is_fresh = is_rate_fresh(pair, timestamp)
-            except Exception as freshness_error:
-                # Ошибка проверки свежести - считаем данные устаревшими
-                logging.getLogger('database').warning(
-                    f"Ошибка проверки свежести курса {pair}: {freshness_error}"
-                )
-                is_fresh = False
+        cache = RatesCache("data/rates.json")
+        rate_info = cache.get_rate(from_code, to_code)
+        
+        if rate_info is not None:
+            source_display = f"Parser Service ({rate_info.source})"
             
-            if is_fresh:
-                # Курс свежий - возвращаем как есть
-                return (float(rate_value), timestamp, "rates.json", True)
+            # Логирование
+            logger = logging.getLogger('rates')
+            if rate_info.is_fresh:
+                logger.debug(f"Свежий курс {pair}: {rate_info.rate} от {rate_info.source}")
             else:
-                # Курс устарел - попытка обновить через API (заглушка)
-                try:
-                    # ЗАГЛУШКА: попытка получить обновлённый курс
-                    updated_rate = _fetch_rate_from_api(pair)
-                    updated_timestamp = datetime.now().isoformat()
-                    
-                    # 5. ОБНОВЛЕНИЕ КУРСА В БАЗЕ ДАННЫХ
-                    rates[pair] = {
-                        'rate': updated_rate,
-                        'updated_at': updated_timestamp
-                    }
-                    try:
-                        _db.save_rates(rates)  # Сохранение обновлённых данных через DatabaseManager
-                    except DatabaseError as save_error:
-                        # Логирование ошибки сохранения обновленных курсов
-                        logging.getLogger('database').error(
-                            f"Ошибка сохранения обновленного курса {pair}: {save_error}"
-                        )
-                        # Продолжаем с устаревшими данными
-                        return (float(rate_value), timestamp, "rates.json (stale)", False)
-                    
-                    return (updated_rate, updated_timestamp, "API", True)
-                    
-                except Exception:
-                    # API недоступно - возвращаем устаревшие данные с пометкой
-                    return (float(rate_value), timestamp, "rates.json (stale)", False)
-        else:
-            # Данные курса неполные (отсутствует rate или timestamp)
-            logging.getLogger('database').warning(
-                f"Неполные данные курса для пары {pair}: rate={rate_value}, timestamp={timestamp}"
+                # ⭐⭐⭐ ВОТ ТУТ ДОБАВЛЯЕМ ПРЕДЛОЖЕНИЕ ОБНОВИТЬ ⭐⭐⭐
+                logger.warning(
+                    f"Устаревший курс {pair} от {rate_info.source}. "
+                    f"Обновите через: python -m valutatrade_hub.cli update-rates"
+                )
+            
+            return (
+                rate_info.rate,
+                rate_info.updated_at,
+                source_display,
+                rate_info.is_fresh
             )
+            
+    except ImportError:
+        # Parser Service не установлен - тихое логирование
+        pass
+    except Exception as e:
+        logging.getLogger('rates').warning(f"Ошибка Parser Service для {pair}: {type(e).__name__}")
     
-    # 6. FALLBACK: РАСЧЁТ ЧЕРЕЗ СТАТИЧЕСКИЕ КУРСЫ
-    # Получение статических курсов из Portfolio.EXCHANGE_RATES
-    from_rate = Portfolio.EXCHANGE_RATES.get(from_code, 1.0)
-    to_rate = Portfolio.EXCHANGE_RATES.get(to_code, 1.0)
+    # 3. FALLBACK НА СТАРУЮ ЛОГИКУ (ДЛЯ ОБРАТНОЙ СОВМЕСТИМОСТИ)
+    logger = logging.getLogger('rates')
     
-    if from_rate == 0:
-        # Защита от деления на ноль
-        fallback_rate = 0.0
-    else:
-        # Расчёт курса: целевая валюта / исходная валюта
-        fallback_rate = to_rate / from_rate
+    try:
+        rates = _db.load_rates()
+        
+        if pair in rates:
+            rate_data = rates[pair]
+            rate_value = rate_data.get('rate')
+            timestamp = rate_data.get('updated_at', 'N/A')
+            
+            if rate_value is not None and timestamp != 'N/A':
+                is_fresh = is_rate_fresh(pair, timestamp)
+                source = "rates.json (legacy)"
+                
+                if not is_fresh:
+                    source = "rates.json (legacy, stale)"
+                    logger.info(f"Устаревший курс из legacy файла: {pair}")
+                
+                return (float(rate_value), timestamp, source, is_fresh)
+                
+    except DatabaseError as e:
+        logger.error(f"Ошибка загрузки legacy курсов для {pair}: {e}")
+    except Exception as e:
+        logger.debug(f"Ошибка legacy fallback для {pair}: {type(e).__name__}")
     
-    # 7. ВОЗВРАТ РЕЗУЛЬТАТА С FALLBACK ИНФОРМАЦИЕЙ
-    return (fallback_rate, "N/A", "Fallback (static)", False)
+        # 4. FINAL FALLBACK: ГЕНЕРАЦИЯ РЕАЛИСТИЧНОГО КУРСА
+    logger.info(f"Генерация реалистичного курса для {pair}")
+    
+    # Используем вспомогательную функцию для генерации реалистичного курса
+    fallback_rate = _generate_realistic_rate(pair)
+    
+    return (
+        fallback_rate,
+        "N/A",
+        "Fallback (генерация реалистичного курса)",
+        False
+    )
 
 def generate_test_rates(test_scenario: str = "mixed") -> None:
     """
@@ -872,7 +843,7 @@ def generate_test_rates(test_scenario: str = "mixed") -> None:
 
 def _generate_realistic_rate(currency_pair: str) -> float:
     """
-    Генерация реалистичного курса валюты на основе Portfolio.EXCHANGE_RATES.
+    Генерация реалистичного курса валюты.
     
     Args:
         currency_pair: Валютная пара в формате "EUR_USD"
@@ -880,26 +851,36 @@ def _generate_realistic_rate(currency_pair: str) -> float:
     Returns:
         float: Реалистичный курс обмена
     """
-    from .models import Portfolio  # Отложенный импорт
+    # СОБСТВЕННЫЙ СЛОВАРЬ РЕАЛИСТИЧНЫХ КУРСОВ
+    REALISTIC_BASE_RATES = {
+        'BTC': 59337.21,   # Bitcoin к USD
+        'ETH': 3720.00,    # Ethereum к USD
+        'EUR': 1.0786,     # Euro к USD
+        'USD': 1.0,        # Базовая валюта
+        'RUB': 0.01016,    # Ruble к USD
+        'GBP': 1.2593,     # Pound к USD
+        'JPY': 0.0067,     # Yen к USD
+        'CNY': 0.1387,     # Yuan к USD
+        'SOL': 145.12      # Solana к USD
+    }
     
     try:
         # Парсинг валютной пары
         from_curr, to_curr = currency_pair.split("_")
         
-        # Получение курсов из статических данных
-        from_rate = Portfolio.EXCHANGE_RATES.get(from_curr, 1.0)
-        to_rate = Portfolio.EXCHANGE_RATES.get(to_curr, 1.0)
+        # Получение курсов из собственного словаря
+        from_rate = REALISTIC_BASE_RATES.get(from_curr, 1.0)
+        to_rate = REALISTIC_BASE_RATES.get(to_curr, 1.0)
         
         # Расчет курса: to_currency / from_currency
         if from_rate == 0:
             return 0.0  # Защита от деления на ноль
-        return to_rate / from_rate
+        return round(to_rate / from_rate, 6)  # Округление для реалистичности
     
     except (ValueError, KeyError):
         # Fallback: случайный реалистичный курс
         import random
         return round(random.uniform(0.5, 2.5), 4)
-
 
 def _save_rates_to_file(rates_data: dict) -> None:
     """
@@ -933,80 +914,32 @@ def _save_rates_to_file(rates_data: dict) -> None:
 
 def is_rate_fresh(currency_pair: str, timestamp: str) -> bool:
     """
-    Проверка актуальности курса валюты по времени обновления.
-    
-    Args:
-        currency_pair: Валютная пара в формате "EUR_USD"
-        timestamp: Время обновления в ISO формате "2025-10-09T10:30:00"
-        
-    Returns:
-        bool: True если курс свежий, False если устарел
-        
-    Notes:
-        Использует TTL из SettingsLoader вместо статических констант
-        Все TTL настраиваются через конфигурацию SettingsLoader
+    Проверка актуальности курса валюты через Parser Service.
     """
-    from datetime import datetime, timedelta
-    from ..infra.settings import SettingsLoader
-    
-    # 1. ПРОВЕРКА ФОРМАТА ВХОДНЫХ ДАННЫХ
-    if "_" not in currency_pair:  # Проверка формата валютной пары
-        return False  # Некорректный формат → считаем устаревшим
-    
     try:
-        # Парсинг timestamp из строки ISO формата
-        update_time = datetime.fromisoformat(timestamp)
-    except (ValueError, TypeError):
-        return False  # Некорректный timestamp → считаем устаревшим
+        # ЛЕНИВЫЙ ИМПОРТ - только здесь
+        from valutatrade_hub.parser_service import RatesCache
+        cache = RatesCache("data/rates.json")
+        return cache.is_fresh(currency_pair, timestamp)
+    except Exception as e:
+        logging.getLogger('rates').warning(
+            f"Parser Service недоступен для проверки свежести: {type(e).__name__}"
+        )
+        return False
     
-    # 2. ПОЛУЧЕНИЕ TTL ИЗ SETTINGSLOADER
-    settings = SettingsLoader()  # Получение экземпляра синглтона
+# def _fetch_rate_from_api(pair: str) -> float:
+#     """Заглушка для получения курса из внешнего API.
+#     В будущем будет заменена на реальный запрос к Parser Service
+#     Args:
+#         pair: Валютная пара в формате "EUR_USD"
+#     Returns:
+#         float: Значение курса валюты
+#     Raises:
+#         ApiRequestError: Имитация ошибки API (заглушка)
+#     """
+#     from .exceptions import ApiRequestError
     
-    # Получение TTL для фиатных валют (по умолчанию 24 часа)
-    fiat_ttl_seconds = settings.get('rates_ttl_fiat_seconds', 86400)
-    # Получение TTL для криптовалют (по умолчанию 5 минут)
-    crypto_ttl_seconds = settings.get('rates_ttl_crypto_seconds', 300)
-    # TTL по умолчанию для остальных валют (по умолчанию 30 минут)
-    default_ttl_seconds = settings.get('rates_ttl_default_seconds', 1800)
-    
-    # 3. ОПРЕДЕЛЕНИЕ ТИПА ВАЛЮТЫ
-    base_currency = currency_pair.split("_")[0].upper()
-    
-    # Классификация валют (можно расширить в будущем)
-    FIAT_CURRENCIES = {"USD", "EUR", "RUB"}  # Фиатные валюты
-    CRYPTO_CURRENCIES = {"BTC", "ETH"}       # Криптовалюты
-    
-    # 4. ВЫБОР ПРАВИЛЬНОГО TTL НА ОСНОВЕ ТИПА ВАЛЮТЫ
-    if base_currency in FIAT_CURRENCIES:
-        # Фиатные валюты: USD, EUR, RUB
-        freshness_limit = timedelta(seconds=fiat_ttl_seconds)
-    elif base_currency in CRYPTO_CURRENCIES:
-        # Криптовалюты: BTC, ETH
-        freshness_limit = timedelta(seconds=crypto_ttl_seconds)
-    else:
-        # Все остальные валюты (если появятся новые)
-        freshness_limit = timedelta(seconds=default_ttl_seconds)
-    
-    # 5. РАСЧЁТ ВРЕМЕНИ, ПРОШЕДШЕГО С ОБНОВЛЕНИЯ
-    time_since_update = datetime.now() - update_time
-    
-    # 6. ПРОВЕРКА СВЕЖЕСТИ ДАННЫХ
-    # Если время с обновления меньше или равно лимиту свежести → курс свежий
-    return time_since_update <= freshness_limit
-
-def _fetch_rate_from_api(pair: str) -> float:
-    """Заглушка для получения курса из внешнего API.
-    В будущем будет заменена на реальный запрос к Parser Service
-    Args:
-        pair: Валютная пара в формате "EUR_USD"
-    Returns:
-        float: Значение курса валюты
-    Raises:
-        ApiRequestError: Имитация ошибки API (заглушка)
-    """
-    from .exceptions import ApiRequestError
-    
-    # ЗАГЛУШКА: имитация запроса к внешнему API
-    # В реальной реализации здесь будет запрос к Parser Service
-    raise ApiRequestError("API временно недоступно (заглушка)")
+#     # ЗАГЛУШКА: имитация запроса к внешнему API
+#     # В реальной реализации здесь будет запрос к Parser Service
+#     raise ApiRequestError("API временно недоступно (заглушка)")
 

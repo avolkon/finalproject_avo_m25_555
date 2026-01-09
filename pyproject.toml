@@ -52,3 +52,8 @@ supported_currencies = ["USD", "EUR", "RUB", "BTC", "ETH"]
 min_password_length = 4
 max_password_length = 100
 min_amount = 0.00000001            # Минимальная сумма для операций
+
+[tool.valutatrade.rates]
+ttl_fiat_seconds = 3600
+ttl_crypto_seconds = 300
+ttl_default_seconds = 1800
