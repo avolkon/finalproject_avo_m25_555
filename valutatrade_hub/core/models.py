@@ -170,11 +170,31 @@ class Portfolio:
         """Получить кошелёк."""
         return self._wallets.get(currency_code.upper())  # По коду из словаря
 
-    def get_total_value(self, base_currency: str = 'USD') -> float:  # Стоимость
-        """Общая стоимость в базовой валюте."""
-        base_rate = self.EXCHANGE_RATES.get(base_currency.upper(), 1.0)  # Курс базы
-        total = 0.0                         # Инициализация суммы
-        for wallet in self._wallets.values():  # Перебор кошельков
-            rate = self.EXCHANGE_RATES.get(wallet.currency_code, 1.0)  # Курс актива
-            total += wallet.balance * (rate / base_rate)  # Добавление стоимости
-        return total                        # Возврат итога
+    def get_total_value(self, base_currency: str = 'USD') -> float:
+        """Рассчитать общую стоимость портфеля в базовой валюте.
+        Args:
+            base_currency: Код базовой валюты для оценки (по умолчанию USD) 
+        Returns:
+            float: Общая стоимость портфеля в указанной валюте
+        Raises:
+            CurrencyNotFoundError: Если валюта не поддерживается
+            ApiRequestError: При ошибках получения курсов
+        """
+        from .usecases import get_rate  # Ленивый импорт для избежания циклов
+        
+        total = 0.0  # Инициализация общей стоимости
+        
+        for wallet in self._wallets.values():  # Перебор всех кошельков
+            try:
+                # Получение курса валюты кошелька к базовой валюте
+                rate, _, _, _ = get_rate(wallet.currency_code, base_currency)
+                total += wallet.balance * rate  # Добавление стоимости
+            except Exception as e:
+                # Логирование ошибки, но продолжение расчёта по остальным валютам
+                import logging
+                logging.getLogger('portfolio').warning(
+                    f"Ошибка получения курса {wallet.currency_code}/{base_currency}: {e}"
+                )
+                continue  # Пропуск проблемной валюты
+        
+        return total  # Возврат итоговой стоимости

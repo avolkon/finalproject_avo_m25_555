@@ -472,8 +472,7 @@ def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
     
     # Получение объекта валюты для валидации и возможного использования
     currency_obj = get_currency(currency_code)  # Может выбросить CurrencyNotFoundError
-    
-        # Получение актуального курса через get_rate()
+    # Получение актуального курса через get_rate()
     try:
         # Получение курса валюты к USD
         rate, timestamp, source, is_fresh = get_rate(currency_code, "USD")
@@ -484,8 +483,7 @@ def buy_currency(user_id: int, currency_code: str, amount: float) -> None:
             f"Ошибка получения курса {currency_code}/USD: {e}"
         )
         # Завершение операции - без курса покупка невозможна
-        raise  # Проброс исключения дальше
-            
+        raise  # Проброс исключения дальше     
     # Получение USD кошелька (гарантировано get_portfolio)
     usd_wallet = portfolio.get_wallet("USD")
     
