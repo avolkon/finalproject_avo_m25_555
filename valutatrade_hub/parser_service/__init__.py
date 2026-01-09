@@ -15,12 +15,13 @@ from .api_clients import (
 from .storage import HistoryStorage, StorageError
 from .updater import RatesUpdater, UpdateStatus, UpdateResult
 from .rates_cache import RatesCache, CacheError, RateInfo
+from .scheduler import SchedulerStatus, RatesScheduler  # Новые импорты
 
 __all__ = [
     "ApiRequestError",  # Ошибки API
     "BaseApiClient",  # Базовый клиент API
     "CoinGeckoClient",  # CoinGecko крипто
-    "ExchangeRateApiClient",  # ExchangeRate фиат (ТЗ4 4.2.3)
+    "ExchangeRateApiClient",  # ExchangeRate фиат
     "HistoryStorage",
     "StorageError",
     "RatesUpdater",
@@ -29,6 +30,8 @@ __all__ = [
     "RatesCache",
     "CacheError",
     "RateInfo",
+    "SchedulerStatus",  # Статус планировщика (новая)
+    "RatesScheduler",  # Планировщик обновлений (новая)
 ]
 
 __version__ = "1.0.0"

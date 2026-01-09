@@ -41,6 +41,13 @@ class ParserConfig:
     RATES_FILE_PATH: str = "data/rates.json"
     HISTORY_FILE_PATH: str = "data/exchange_rates.json"
 
+    # Настройки планировщика (из pyproject.toml)
+    FIAT_UPDATE_INTERVAL_MINUTES: int = 60
+    CRYPTO_UPDATE_INTERVAL_MINUTES: int = 5
+    ENABLE_AUTO_START: bool = True
+    LOG_SCHEDULER_EVENTS: bool = True
+    UPDATE_TIMEOUT_SECONDS: int = 300
+    ALLOW_CONCURRENT_UPDATES: bool = False
 
 # Глобальный экземпляр конфигурации
 config: ParserConfig = ParserConfig()
