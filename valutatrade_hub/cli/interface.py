@@ -175,7 +175,6 @@ def require_login() -> None:
         # Завершение CLI с кодом ошибки 1
         sys.exit(1)  # Happy path: пользователь авторизован, продолжаем
 
-
 def buy_cli(currency: str, amount: float) -> None:
     """CLI обработка покупки валюты с детализированным выводом по ТЗ УЗ 222."""
 
@@ -186,46 +185,36 @@ def buy_cli(currency: str, amount: float) -> None:
         print("Сначала выполните login")
         return
 
-    try:
-        # 1. Загружаем портфель ДЛЯ ПОЛУЧЕНИЯ БАЛАНСА "БЫЛО"
-        portfolio_before = get_portfolio(CURRENT_USER_ID)
-        wallet_before = portfolio_before.get_wallet(currency)
-        # Если кошелька нет до покупки, баланс = 0.0
-        balance_before = wallet_before.balance if wallet_before else 0.0
+    # 1. Загружаем портфель ДЛЯ ПОЛУЧЕНИЯ БАЛАНСА "БЫЛО"
+    portfolio_before = get_portfolio(CURRENT_USER_ID)
+    wallet_before = portfolio_before.get_wallet(currency)
+    # Если кошелька нет до покупки, баланс = 0.0
+    balance_before = wallet_before.balance if wallet_before else 0.0
 
-        # 2. Получаем курс для расчета стоимости
-        rate_tuple = get_rate("USD", currency)
-        rate = rate_tuple[0]  # курс USD→currency (первый элемент кортежа)
+    # 2. Получаем курс для расчета стоимости
+    rate_tuple = get_rate("USD", currency)
+    rate = rate_tuple[0]  # курс USD→currency (первый элемент кортежа)
 
-        # 3. Выполняем покупку (основная бизнес-логика)
-        buy_currency(CURRENT_USER_ID, currency, amount)
+    # 3. Выполняем покупку (основная бизнес-логика)
+    buy_currency(CURRENT_USER_ID, currency, amount)
 
-        # 4. Расчет стоимости покупки в USD
-        cost_usd = amount * rate
+    # 4. Расчет стоимости покупки в USD
+    cost_usd = amount * rate
 
-        # 5. Вывод деталей операции по ТЗ (точный формат из примера)
-        print(
-            f"Покупка выполнена: {amount:.4f} {currency} по курсу "
-            f"{rate:.2f} USD/{currency}"
-        )
-        print("Изменения в портфеле:")
-        print(
-            f"- {currency}: было {balance_before:.4f} → стало "
-            f"{balance_before + amount:.4f}"
-        )
-        print(f"Оценочная стоимость покупки: {cost_usd:,.2f} USD")
+    # 5. Вывод деталей операции по ТЗ (точный формат из примера)
+    print(
+        f"Покупка выполнена: {amount:.4f} {currency} по курсу "
+        f"{rate:.2f} USD/{currency}"
+    )
+    print("Изменения в портфеле:")
+    print(
+        f"- {currency}: было {balance_before:.4f} → стало "
+        f"{balance_before + amount:.4f}"
+    )
+    print(f"Оценочная стоимость покупки: {cost_usd:,.2f} USD")
 
-        # 6. Вывод обновленного портфеля (существующий функционал)
-        show_portfolio("USD")
-
-    except (ValueError, CurrencyNotFoundError, InsufficientFundsError) as e:
-        # Обработка ошибок валидации, неизвестных валют и недостатка средств
-        print(f"Ошибка: {e}")
-        sys.exit(1)
-    except Exception as e:
-        # Обработка всех остальных исключений
-        print(f"Критическая ошибка: {e}")
-        sys.exit(1)
+    # 6. Вывод обновленного портфеля (существующий функционал)
+    show_portfolio("USD")
 
 
 def sell_cli(currency: str, amount: float) -> None:
@@ -238,69 +227,51 @@ def sell_cli(currency: str, amount: float) -> None:
         print("Сначала выполните login")
         return
 
-    try:
-        # 1. Загружаем портфель ДЛЯ ПРОВЕРКИ КОШЕЛЬКА И БАЛАНСА
-        portfolio_before = get_portfolio(CURRENT_USER_ID)
-        wallet_before = portfolio_before.get_wallet(currency)
+    # ВЕСЬ КОД БЕЗ try-except блока (строки 279-316 из оригинального try блока):
+    # 1. Загружаем портфель ДЛЯ ПРОВЕРКИ КОШЕЛЬКА И БАЛАНСА
+    portfolio_before = get_portfolio(CURRENT_USER_ID)
+    wallet_before = portfolio_before.get_wallet(currency)
 
-        # 2. Проверка кошелька (новая валидация по ТЗ)
-        if wallet_before is None:
-            raise ValueError(
-                f"У вас нет кошелька '{currency}'. "
-                f"Добавьте валюту: она создаётся автоматически при первой покупке."
-            )
-
-        balance_before = wallet_before.balance
-
-        # 3. Проверка достаточности средств (новая валидация по ТЗ)
-        if balance_before < amount:
-            raise ValueError(
-                f"Недостаточно средств: доступно {balance_before:.4f} {currency}, "
-                f"требуется {amount:.4f} {currency}"
-            )
-
-        # 4. Получаем курс для расчета выручки
-        rate_tuple = get_rate(currency, "USD")
-        rate = rate_tuple[0]  # курс currency→USD (первый элемент кортежа)
-
-        # 5. Выполняем продажу (основная бизнес-логика)
-        sell_currency(CURRENT_USER_ID, currency, amount)
-
-        # 6. Расчет выручки в USD
-        revenue_usd = amount * rate
-
-        # 7. Вывод деталей операции по ТЗ
-        print(
-            f"Продажа выполнена: {amount:.4f} {currency} по курсу "
-            f"{rate:.2f} USD/{currency}"
+    # 2. Проверка кошелька (новая валидация по ТЗ)
+    if wallet_before is None:
+        raise ValueError(
+            f"У вас нет кошелька '{currency}'. "
+            f"Добавьте валюту: она создаётся автоматически при первой покупке."
         )
-        print("Изменения в портфеле:")
-        print(
-            f"- {currency}: было {balance_before:.4f} → стало "
-            f"{balance_before - amount:.4f}"
+
+    balance_before = wallet_before.balance
+
+    # 3. Проверка достаточности средств (новая валидация по ТЗ)
+    if balance_before < amount:
+        raise ValueError(
+            f"Недостаточно средств: доступно {balance_before:.4f} {currency}, "
+            f"требуется {amount:.4f} {currency}"
         )
-        print(f"Оценочная выручка: {revenue_usd:,.2f} USD")
 
-        # 8. Вывод обновленного портфеля (существующий функционал)
-        show_portfolio("USD")
+    # 4. Получаем курс для расчета выручки
+    rate_tuple = get_rate(currency, "USD")
+    rate = rate_tuple[0]  # курс currency→USD (первый элемент кортежа)
 
-    except (ValueError, CurrencyNotFoundError, InsufficientFundsError) as e:
-        # Обработка ошибок валидации, неизвестных валют и недостатка средств
-        print(f"Ошибка: {e}")
-        sys.exit(1)
-    except Exception as e:
-        # Обработка всех остальных исключений
-        print(f"Критическая ошибка: {e}")
-        sys.exit(1)
+    # 5. Выполняем продажу (основная бизнес-логика)
+    sell_currency(CURRENT_USER_ID, currency, amount)
 
-    # Удалены дублирующиеся строки, т.к. операция продажи
-    # уже выполняется в блоке try перед обработкой исключений.
-    # # Выполнение продажи через бизнес-логику
-    # sell_currency(CURRENT_USER_ID, currency, amount)
+    # 6. Расчет выручки в USD
+    revenue_usd = amount * rate
 
-    # # Вывод обновлённого портфеля в USD
-    # show_portfolio('USD')
+    # 7. Вывод деталей операции по ТЗ
+    print(
+        f"Продажа выполнена: {amount:.4f} {currency} по курсу "
+        f"{rate:.2f} USD/{currency}"
+    )
+    print("Изменения в портфеле:")
+    print(
+        f"- {currency}: было {balance_before:.4f} → стало "
+        f"{balance_before - amount:.4f}"
+    )
+    print(f"Оценочная выручка: {revenue_usd:,.2f} USD")
 
+    # 8. Вывод обновленного портфеля (существующий функционал)
+    show_portfolio("USD")
 
 def get_rate_cli(from_currency: str, to_currency: str) -> None:
     """CLI команда получения курса валют с индикатором свежести и источником данных."""

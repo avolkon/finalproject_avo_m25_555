@@ -769,14 +769,19 @@ def get_rate(from_currency: str, to_currency: str) -> tuple[float, str, str, boo
     except Exception as e:
         logger.debug(f"Ошибка legacy fallback для {pair}: {type(e).__name__}")
 
-        # 4. FINAL FALLBACK: ГЕНЕРАЦИЯ РЕАЛИСТИЧНОГО КУРСА
-    logger.info(f"Генерация реалистичного курса для {pair}")
-
-    # Используем вспомогательную функцию для генерации реалистичного курса
-    fallback_rate = _generate_realistic_rate(pair)
-
-    return (fallback_rate, "N/A", "Fallback (генерация реалистичного курса)", False)
-
+    # 4. FINAL FALLBACK: ГЕНЕРАЦИЯ КУРСА ПРИ ПОЛНОМ ОТСУТСТВИИ ДАННЫХ
+    logger.warning(f"Использование fallback курса для {pair} (нет данных в кэше)")
+    
+    # Генерация fallback курса только как крайняя мера
+    fallback_rate = _generate_fallback_rate(pair)
+    
+    # Возврат с явным указанием, что это fallback
+    return (
+        fallback_rate, 
+        "N/A", 
+        "Fallback (отсутствуют данные в Parser Service)", 
+        False
+    )
 
 def generate_test_rates(test_scenario: str = "mixed") -> None:
     """
@@ -800,13 +805,13 @@ def generate_test_rates(test_scenario: str = "mixed") -> None:
     test_rates = {}
     current_time = datetime.now()
 
-    # Генерация timestamp для каждого сценария
+        # Генерация timestamp для каждого сценария
     if test_scenario == "all_fresh":
         # Все курсы свежие (обновлены 1 минуту назад)
         timestamp = current_time - timedelta(minutes=1)
         for pair in currency_pairs:
             test_rates[pair] = {
-                "rate": _generate_realistic_rate(pair),
+                "rate": _generate_fallback_rate(pair),
                 "updated_at": timestamp.isoformat(),
             }
 
@@ -815,7 +820,7 @@ def generate_test_rates(test_scenario: str = "mixed") -> None:
         timestamp = current_time - timedelta(days=2)
         for pair in currency_pairs:
             test_rates[pair] = {
-                "rate": _generate_realistic_rate(pair),
+                "rate": _generate_fallback_rate(pair),
                 "updated_at": timestamp.isoformat(),
             }
 
@@ -827,7 +832,7 @@ def generate_test_rates(test_scenario: str = "mixed") -> None:
         for i, pair in enumerate(currency_pairs):
             timestamp = fresh_time if i < 2 else stale_time
             test_rates[pair] = {
-                "rate": _generate_realistic_rate(pair),
+                "rate": _generate_fallback_rate(pair),
                 "updated_at": timestamp.isoformat(),
             }
 
@@ -835,7 +840,7 @@ def generate_test_rates(test_scenario: str = "mixed") -> None:
         # Некорректные форматы timestamp для тестирования обработки ошибок
         for pair in currency_pairs:
             test_rates[pair] = {
-                "rate": _generate_realistic_rate(pair),
+                "rate": _generate_fallback_rate(pair),
                 "updated_at": "2025-13-45T99:99:99",  # Некорректный формат
             }
 
@@ -870,48 +875,59 @@ def generate_test_rates(test_scenario: str = "mixed") -> None:
     print(f"   Записей курсов: {len([k for k in test_rates.keys() if '_' in k])}")
 
 
-def _generate_realistic_rate(currency_pair: str) -> float:
+def _generate_fallback_rate(currency_pair: str) -> float:
     """
-    Генерация реалистичного курса валюты.
+    Генерация fallback курса при полном отсутствии данных.
+    Использует только общеизвестные константы для минимальной предсказуемости.
 
     Args:
         currency_pair: Валютная пара в формате "EUR_USD"
 
     Returns:
-        float: Реалистичный курс обмена
+        float: Fallback курс обмена (только для крайних случаев)
     """
-    # СОБСТВЕННЫЙ СЛОВАРЬ РЕАЛИСТИЧНЫХ КУРСОВ
-    REALISTIC_BASE_RATES = {
-        "BTC": 59337.21,  # Bitcoin к USD
-        "ETH": 3720.00,  # Ethereum к USD
-        "EUR": 1.0786,  # Euro к USD
-        "USD": 1.0,  # Базовая валюта
-        "RUB": 0.01016,  # Ruble к USD
-        "GBP": 1.2593,  # Pound к USD
-        "JPY": 0.0067,  # Yen к USD
-        "CNY": 0.1387,  # Yuan к USD
-        "SOL": 145.12,  # Solana к USD
-    }
-
+    import random
+    import logging
+    
+    # Логирование использования fallback как предупреждение
+    logger = logging.getLogger("rates")
+    logger.warning(f"Использование fallback для курса: {currency_pair}")
+    
     try:
         # Парсинг валютной пары
         from_curr, to_curr = currency_pair.split("_")
-
-        # Получение курсов из собственного словаря
-        from_rate = REALISTIC_BASE_RATES.get(from_curr, 1.0)
-        to_rate = REALISTIC_BASE_RATES.get(to_curr, 1.0)
-
-        # Расчет курса: to_currency / from_currency
-        if from_rate == 0:
-            return 0.0  # Защита от деления на ноль
-        return round(to_rate / from_rate, 6)  # Округление для реалистичности
-
-    except (ValueError, KeyError):
-        # Fallback: случайный реалистичный курс
-        import random
-
-        return round(random.uniform(0.5, 2.5), 4)
-
+        
+        # Базовые константы для основных валют (только для fallback)
+        BASE_CONSTANTS = {
+            "BTC": 50000.0,    # Приблизительная базовая стоимость BTC
+            "ETH": 3000.0,     # Приблизительная базовая стоимость ETH
+            "USD": 1.0,        # Базовая валюта
+            "EUR": 0.9,        # Приблизительный курс EUR/USD
+            "RUB": 0.011,      # Приблизительный курс RUB/USD
+        }
+        
+        # Получение базовых значений или использование 1.0 по умолчанию
+        from_val = BASE_CONSTANTS.get(from_curr, 1.0)
+        to_val = BASE_CONSTANTS.get(to_curr, 1.0)
+        
+        # Расчет курса с защитой от деления на ноль
+        if from_val == 0:
+            return 1.0  # Нейтральный курс при ошибке
+        
+        rate = to_val / from_val
+        
+        # Добавление небольшой случайной вариации для реалистичности
+        variation = random.uniform(0.95, 1.05)  # ±5% вариация
+        fallback_rate = round(rate * variation, 6)
+        
+        logger.info(f"Fallback курс {currency_pair}: {fallback_rate}")
+        return fallback_rate
+        
+    except (ValueError, KeyError, ZeroDivisionError):
+        # Аварийный fallback: случайный курс в разумном диапазоне
+        emergency_rate = round(random.uniform(0.1, 10.0), 4)
+        logger.error(f"Аварийный fallback для {currency_pair}: {emergency_rate}")
+        return emergency_rate
 
 def _save_rates_to_file(rates_data: dict) -> None:
     """
