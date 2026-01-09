@@ -133,6 +133,15 @@ class Wallet:
 class Portfolio:
     """Портфель пользователя."""
 
+    # Базовые (устаревшие/резервные) курсы для CLI-показов
+    EXCHANGE_RATES: dict[str, float] = {
+        "USD": 1.0,
+        "EUR": 1.0,
+        "RUB": 1.0,
+        "BTC": 1.0,
+        "ETH": 1.0,
+    }
+
     # EXCHANGE_RATES = {                  # Фиксированные курсы
     #     'BTC': 59337.21,                # Биткоин к USD
     #     'EUR': 1.0786,                  # Евро к USD
