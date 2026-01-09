@@ -9,9 +9,12 @@ class ParserConfig:
     """Конфигурация парсера курсов валют."""
 
     # API ключ из ENV (по умолчанию из ТЗ4)
-    EXCHANGERATE_API_KEY: str = os.getenv(
-        "EXCHANGERATE_API_KEY", "d27515639de97f22e18f53d9"
-    )
+    EXCHANGERATE_API_KEY: str = os.getenv("d27515639de97f22e18f53d9", "")
+    if not EXCHANGERATE_API_KEY:
+        raise ValueError("""
+                Ошибка: переменная окружения EXCHANGERATE_API_KEY не установлена.
+                Добавьте её в .env файл или установите командой:
+                set EXCHANGERATE_API_KEY=ваш_ключ_сюда""")
 
     # Базовые URL эндпоинтов API
     EXCHANGERATE_API_URL: str = "https://v6.exchangerate-api.com/v6"
@@ -51,3 +54,18 @@ class ParserConfig:
 
 # Глобальный экземпляр конфигурации
 config: ParserConfig = ParserConfig()
+
+def __post_init__(self) -> None:
+    if not self.EXCHANGERATE_API_KEY:
+        raise ValueError(
+            "❌ Не удалось загрузить API-ключ ExchangeRate.\n\n"
+            "Для работы с курсами валют необходимо:\n"
+            "1. Получите бесплатный ключ на https://www.exchangerate-api.com/\n"
+            "2. Установите его одним из способов:\n"
+            "   • Создайте файл '.env' в корне проекта и добавьте:\n"
+            "     EXCHANGERATE_API_KEY=ваш_ключ\n"
+            "   • Или установите через командную строку:\n"
+            "     Windows: set EXCHANGERATE_API_KEY=ваш_ключ\n"
+            "     Linux/Mac: export EXCHANGERATE_API_KEY=ваш_ключ\n\n"
+            "После установки перезапустите программу."
+        )
