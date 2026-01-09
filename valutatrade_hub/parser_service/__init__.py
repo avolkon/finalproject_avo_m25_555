@@ -5,10 +5,11 @@
 из внешних API источников (CoinGecko, ExchangeRate-API).
 """
 
-# Экспорт классов API клиентов, хранилища и координатора обновления
+# Экспорт классов API клиентов, хранилища, координатора обновления и кэша
 from .api_clients import BaseApiClient, CoinGeckoClient
 from .storage import HistoryStorage, StorageError
 from .updater import RatesUpdater, UpdateStatus, UpdateResult
+from .rates_cache import RatesCache, CacheError, RateInfo
 
 __all__ = [
     'BaseApiClient',    # Абстрактный базовый класс для API клиентов
@@ -18,8 +19,10 @@ __all__ = [
     'RatesUpdater',     # Координатор процесса обновления курсов
     'UpdateStatus',     # Перечисление статусов обновления
     'UpdateResult',     # Класс результата операции обновления
+    'RatesCache',       # Класс для управления кэшем актуальных курсов
+    'CacheError',       # Исключение для ошибок работы кэша
+    'RateInfo',         # Структурированная информация о курсе
 ]
 
 __version__ = "1.0.0"
 __author__ = "ValutaTrade Hub Development Team"
-
