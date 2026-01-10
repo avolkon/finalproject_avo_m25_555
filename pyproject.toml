@@ -24,6 +24,7 @@ project = "valutatrade_hub.cli.interface:main"
 # Альтернатива для parser service
 update-rates = "valutatrade_hub.parser_service.__init__:run_cli_update"
 
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
