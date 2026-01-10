@@ -12,5 +12,12 @@
     "hashed_password": "67e98f4fa786031393f954a9a5c15cd8aec20bf0116e3bcb491ceaed96e29784",
     "salt": "d6cccb48",
     "registration_date": "2026-01-07T23:20:30.875436"
+  },
+  {
+    "user_id": 3,
+    "username": "avo",
+    "hashed_password": "4eb6e565d53bc9511151235f9da7f8ccee8488184b7f82b683a25012d8bb72c5",
+    "salt": "bec319db",
+    "registration_date": "2026-01-10T16:26:25.445604"
   }
 ]

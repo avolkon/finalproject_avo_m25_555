@@ -36,6 +36,7 @@ class HistoryStorage:
     Класс управляет чтением и записью исторических данных о курсах валют
     в файл exchange_rates.json с поддержкой атомарных операций и уникальных ID.
     """
+
     # Константа версии формата данных
     DATA_VERSION: str = "1.0"
 
@@ -72,21 +73,27 @@ class HistoryStorage:
         from_cur = from_currency.upper().strip()
         to_cur = to_currency.upper().strip()
         # "2025-10-10T12:00:00Z" -> "20251010T120000Z"
-        ts_clean = timestamp.replace('-', '').replace(':', '').rpartition('.')[0] + 'Z'
+        ts_clean = timestamp.replace("-", "").replace(":", "").rpartition(".")[0] + "Z"
         record_id = f"{from_cur}{to_cur}_{ts_clean}"
-        self.logger.debug(f"Generated ID: {record_id} from {from_currency}/{to_currency}/{timestamp}")
+        self.logger.debug(
+            f"Generated ID: {record_id} from {from_currency}/{to_currency}/{timestamp}"
+        )
         return record_id
-    
+
     def validate_record(self, record: Dict[str, Any]) -> bool:
         """Валидация: required + формат + meta."""
         required = ["from_currency", "to_currency", "rate", "timestamp", "source"]
         for field in required:
             if field not in record:
-                self.logger.warning(f"Missing: {field} in {record.get('id', 'unknown')}")
+                self.logger.warning(
+                    f"Missing: {field} in {record.get('id', 'unknown')}"
+                )
                 return False
-        
+
         # UPPER 2-5 символов
-        if not (2 <= len(record["from_currency"]) <= 5 and record["from_currency"].isupper()):
+        if not (
+            2 <= len(record["from_currency"]) <= 5 and record["from_currency"].isupper()
+        ):
             return False
         if record["rate"] <= 0:
             self.logger.warning(f"Invalid rate {record['rate']}")
@@ -101,7 +108,6 @@ class HistoryStorage:
                 self.logger.warning(f"Missing meta.{mfield}")
                 return False
         return True
-        
 
     def save_record(self, record_data: Dict[str, Any]) -> str:
         """Сохранить одну запись о курсе валюты в историческое хранилище.

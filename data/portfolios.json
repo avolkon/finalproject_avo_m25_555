@@ -7,5 +7,14 @@
         "balance": 0.0
       }
     }
+  },
+  {
+    "user_id": 3,
+    "wallets": {
+      "USD": {
+        "currency_code": "USD",
+        "balance": 0.0
+      }
+    }
   }
 ]
