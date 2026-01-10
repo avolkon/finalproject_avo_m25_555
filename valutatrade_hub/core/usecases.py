@@ -26,9 +26,6 @@ from ..decorators import log_action
 _settings = SettingsLoader()
 _db = DatabaseManager()
 
-CURRENT_USER_ID: Optional[int] = None  # Глобальная сессия пользователя
-
-
 def serialize_portfolio(portfolio: Portfolio) -> Dict:  # Сериализация → JSON
     """Сериализация портфеля."""
     return {
@@ -188,11 +185,13 @@ def register_user(username: str, password: str) -> int:
 
 
 @log_action(action="LOGIN")
-def login_user(username: str, password: str) -> None:
+def login_user(username: str, password: str) -> int:
     """Авторизация пользователя.
     Args:
         username: Имя пользователя для входа
         password: Пароль пользователя для проверки
+    Returns:
+        int: ID пользователя при успешной авторизации
     Raises:
         ValueError: Если пользователь не найден или пароль неверный
         DatabaseError: При ошибках загрузки данных пользователей
@@ -200,6 +199,7 @@ def login_user(username: str, password: str) -> None:
     Note:
         Декорирован @log_action для автоматического логирования операции входа.
         Пароль пользователя не попадает в логи (скрывается декоратором).
+        Возвращает ID пользователя вместо установки глобальной переменной.
     """
     try:
         # Загрузка всех пользователей через DatabaseManager с обработкой ошибок
@@ -217,28 +217,34 @@ def login_user(username: str, password: str) -> None:
             user = deserialize_user(user_data)  # Dict → User объект (OOP паттерн)
 
             if user.verify_password(password):  # Проверка хеша пароля
-                global CURRENT_USER_ID  # Модификация глобальной сессии
-                CURRENT_USER_ID = user.user_id  # Установка текущего пользователя
-                print(f"Вы вошли как '{username}'")  # Сообщение об успешном входе
-                return  # Успешный ранний возврат
-
+                # Успешная авторизация - возвращаем ID пользователя
+                # Используем свойство user_id класса User
+                return user.user_id  # Используем свойство user_id из класса User
+                
             raise ValueError("Неверный пароль")  # Неправильный пароль
 
     raise ValueError("Пользователь не найден")  # Пользователь не найден в системе
 
 
 def get_current_user() -> User | None:
-    """Получить текущего залогиненного пользователя.
-
+    """Получить текущего залогиненного пользователя через сессию.
     Returns:
         User | None: Объект пользователя или None если сессия не активна
                     или пользователь не найден
-
     Raises:
         DatabaseError: При ошибках загрузки данных пользователей
+    Note:
+        Вместо глобальной переменной CURRENT_USER_ID использует
+        сессионное хранилище из cli/interface.py
     """
+    # Импортируем функцию для получения ID из сессии
+    from valutatrade_hub.cli.interface import get_current_user_id
+    
+    # Получаем ID текущего пользователя из сессии
+    current_user_id = get_current_user_id()
+    
     # Проверка наличия активной пользовательской сессии
-    if CURRENT_USER_ID is None:
+    if current_user_id is None:
         return None  # Нет активной сессии
 
     try:
@@ -253,7 +259,7 @@ def get_current_user() -> User | None:
 
     # Поиск пользователя по ID среди загруженных данных
     for data in users:
-        if data["user_id"] == CURRENT_USER_ID:
+        if data["user_id"] == current_user_id:
             return deserialize_user(data)  # Десериализация в объект User
 
     return None  # Пользователь не найден (редкий случай, например, удален из системы)

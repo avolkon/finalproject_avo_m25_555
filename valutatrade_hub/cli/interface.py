@@ -1,6 +1,10 @@
 """
 CLI интерфейс платформы.
 """
+import json  # Для работы с JSON форматом
+from datetime import datetime  # Для работы с временем
+from pathlib import Path
+import sys
 
 import argparse  # Для парсинга аргументов командной строки
 import sys  # Для работы с системными аргументами
@@ -10,7 +14,6 @@ from prettytable import PrettyTable  # Для красивого вывода т
 from valutatrade_hub.core.usecases import (  # Импорт бизнес-логики
     register_user,  # Функция регистрации пользователя
     login_user,  # Функция входа пользователя
-    CURRENT_USER_ID,  # Глобальная переменная текущего пользователя
     get_portfolio,  # Функция получения портфеля
     load_user,  # Функция загрузки пользователя по ID
     buy_currency,
@@ -31,6 +34,44 @@ from valutatrade_hub.core.exceptions import (
 
 BASE_DIR = Path(__file__).parent.parent
 CACHE_PATH = BASE_DIR / "data" / "rates.json"
+SESSION_FILE = BASE_DIR / "data" / "session.json"  # Файл для хранения сессии
+
+
+def load_session() -> dict | None:
+    """Загрузить текущую сессию из файла."""
+    if not SESSION_FILE.exists():  # Проверяем существование файла сессии
+        return None  # Файла нет - сессии нет
+    try:
+        with SESSION_FILE.open("r", encoding="utf-8") as f:
+            return json.load(f)  # Читаем JSON данные
+    except (json.JSONDecodeError, IOError):
+        return None  # При ошибке чтения возвращаем None
+
+
+def save_session(user_id: int, username: str) -> None:
+    """Сохранить сессию пользователя в файл."""
+    SESSION_FILE.parent.mkdir(exist_ok=True)  # Создаем папку если нет
+    session_data = {
+        "current_user_id": user_id,
+        "last_login": datetime.now().isoformat(),  # Текущее время в ISO формате
+        "username": username,
+    }
+    with SESSION_FILE.open("w", encoding="utf-8") as f:
+        json.dump(session_data, f, indent=2)  # Сохраняем с отступами
+
+
+def clear_session() -> None:
+    """Очистить сессию (выход из системы)."""
+    if SESSION_FILE.exists():
+        SESSION_FILE.unlink()  # Удаляем файл сессии
+
+
+def get_current_user_id() -> int | None:
+    """Получить ID текущего пользователя из сессии."""
+    session = load_session()
+    if session and "current_user_id" in session:
+        return session["current_user_id"]
+    return None  # Нет активной сессии
 
 
 def safe_execute_command(command_func, *args, **kwargs):
@@ -117,16 +158,17 @@ def create_parser() -> argparse.ArgumentParser:
 
 def show_portfolio(base: str) -> None:
     """Показать портфель текущего пользователя."""
-    if CURRENT_USER_ID is None:  # Проверка наличия активной сессии
+    current_user_id = get_current_user_id()  # Получаем ID из сессии
+    if current_user_id is None:  # Проверка наличия активной сессии
         print("Сначала выполните login")  # Сообщение об отсутствии входа
         return  # Выход из функции
 
-    user = load_user(CURRENT_USER_ID)  # Загрузка пользователя по ID
+    user = load_user(current_user_id)  # Загрузка пользователя по ID
     if user is None:  # Проверка успешности загрузки
         print("Критическая ошибка: пользователь не найден")  # Сообщение об ошибке
         return  # Выход из функции
 
-    portfolio = get_portfolio(CURRENT_USER_ID)  # Получение портфеля пользователя
+    portfolio = get_portfolio(current_user_id)  # Получение портфеля пользователя
     base_code = base.upper()  # Приведение базовой валюты к верхнему регистру
 
     if not portfolio.wallets:  # Проверка наличия кошельков в портфеле
@@ -162,28 +204,22 @@ def show_portfolio(base: str) -> None:
     print(f"ИТОГО: {total:.2f} {base_code}")  # Вывод общей суммы
 
 
-def require_login() -> None:
-    """Проверка активной сессии, sys.exit(1) если нет login."""
-    # Проверка наличия залогиненного пользователя
-    if CURRENT_USER_ID is None:
-        # Сообщение об отсутствии сессии
-        print("Сначала выполните login")
-        # Завершение CLI с кодом ошибки 1
-        sys.exit(1)  # Happy path: пользователь авторизован, продолжаем
+def require_login() -> int:
+    """Проверка активной сессии, возвращает ID пользователя или завершает программу."""
+    current_user_id = get_current_user_id()  # Получаем ID из сессии
+    if current_user_id is None:  # Проверяем наличие активной сессии
+        print("Сначала выполните login")  # Сообщение об отсутствии входа
+        sys.exit(1)  # Завершаем с ошибкой
+    return current_user_id  # Возвращаем ID авторизованного пользователя
 
 
 def buy_cli(currency: str, amount: float) -> None:
     """CLI обработка покупки валюты с детализированным выводом по ТЗ УЗ 222."""
 
-    require_login()  # Проверка активной сессии пользователя
-
-    if CURRENT_USER_ID is None:
-        # Защита от None после require_login (двойная проверка)
-        print("Сначала выполните login")
-        return
+    current_user_id = require_login()  # Проверка сессии и получение ID
 
     # 1. Загружаем портфель ДЛЯ ПОЛУЧЕНИЯ БАЛАНСА "БЫЛО"
-    portfolio_before = get_portfolio(CURRENT_USER_ID)
+    portfolio_before = get_portfolio(current_user_id)
     wallet_before = portfolio_before.get_wallet(currency)
     # Если кошелька нет до покупки, баланс = 0.0
     balance_before = wallet_before.balance if wallet_before else 0.0
@@ -193,7 +229,7 @@ def buy_cli(currency: str, amount: float) -> None:
     rate = rate_tuple[0]  # курс USD→currency (первый элемент кортежа)
 
     # 3. Выполняем покупку (основная бизнес-логика)
-    buy_currency(CURRENT_USER_ID, currency, amount)
+    buy_currency(current_user_id, currency, amount)
 
     # 4. Расчет стоимости покупки в USD
     cost_usd = amount * rate
@@ -217,16 +253,11 @@ def buy_cli(currency: str, amount: float) -> None:
 def sell_cli(currency: str, amount: float) -> None:
     """CLI обработка продажи валюты с детализированным выводом по ТЗ УЗ 222."""
 
-    require_login()  # Проверка активной сессии пользователя
-
-    if CURRENT_USER_ID is None:
-        # Защита от None после require_login (двойная проверка)
-        print("Сначала выполните login")
-        return
-
+    current_user_id = require_login()  # Проверка сессии и получение ID
+    
     # ВЕСЬ КОД БЕЗ try-except блока (строки 279-316 из оригинального try блока):
     # 1. Загружаем портфель ДЛЯ ПРОВЕРКИ КОШЕЛЬКА И БАЛАНСА
-    portfolio_before = get_portfolio(CURRENT_USER_ID)
+    portfolio_before = get_portfolio(current_user_id)
     wallet_before = portfolio_before.get_wallet(currency)
 
     # 2. Проверка кошелька (новая валидация по ТЗ)
@@ -250,7 +281,7 @@ def sell_cli(currency: str, amount: float) -> None:
     rate = rate_tuple[0]  # курс currency→USD (первый элемент кортежа)
 
     # 5. Выполняем продажу (основная бизнес-логика)
-    sell_currency(CURRENT_USER_ID, currency, amount)
+    sell_currency(current_user_id, currency, amount)
 
     # 6. Расчет выручки в USD
     revenue_usd = amount * rate
@@ -502,9 +533,18 @@ def main(argv: list[str] | None = None) -> None:
         argv = sys.argv
 
     if len(argv) == 1:
-        print(
-            "Доступные команды: register, login, show-portfolio, buy, sell, get-rate, update-rates, show-rates"
-        )
+        print(""""
+        Доступные команды:
+            register
+            login
+            logout
+            show-portfolio
+            buy
+            sell
+            get-rate
+            update-rates
+            show-rates
+        """)
         return
 
     parser = create_parser()
@@ -520,9 +560,16 @@ def main(argv: list[str] | None = None) -> None:
             )
 
         elif args.command == "login":
-            # login_user сам обрабатывает ошибки и выводит сообщения
-            login_user(args.username, args.password)
+            # login_user возвращает user_id при успешном входе
+            user_id = login_user(args.username, args.password)
+            if user_id:  # Если вход успешен
+                save_session(user_id, args.username)  # Сохраняем сессию
+                print(f"Вход выполнен. Сессия сохранена для пользователя '{args.username}'.")
 
+        elif args.command == "logout":
+            clear_session()  # Очищаем сессию
+            print("Выход выполнен. Сессия удалена.")
+        
         elif args.command == "show-portfolio":
             safe_execute_command(show_portfolio, args.base)
 
