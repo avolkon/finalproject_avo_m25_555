@@ -10,12 +10,19 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.11"
 prettytable = "^3.10.0"
+requests = "^2.32.0"
+python-dotenv = "^1.0.0"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.6.8"
+pytest = "^8.3.0"
+mypy = "^1.12.0"
 
 [tool.poetry.scripts]
-project = "main:main"  # ← CLI!
+# Основная CLI-команда (работает на Mac/Linux/Windows)
+project = "valutatrade_hub.cli.interface:main"
+# Альтернатива для parser service
+update-rates = "valutatrade_hub.parser_service.__init__:run_cli_update"
 
 [build-system]
 requires = ["poetry-core"]
