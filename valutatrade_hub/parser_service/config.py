@@ -52,8 +52,10 @@ class ParserConfig:
     UPDATE_TIMEOUT_SECONDS: int = 300
     ALLOW_CONCURRENT_UPDATES: bool = False
 
+
 # Глобальный экземпляр конфигурации
 config: ParserConfig = ParserConfig()
+
 
 def __post_init__(self) -> None:
     if not self.EXCHANGERATE_API_KEY:

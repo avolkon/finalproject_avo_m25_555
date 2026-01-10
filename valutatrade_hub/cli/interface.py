@@ -3,7 +3,6 @@ CLI интерфейс платформы.
 """
 
 import argparse  # Для парсинга аргументов командной строки
-import os
 import sys  # Для работы с системными аргументами
 from pathlib import Path
 from prettytable import PrettyTable  # Для красивого вывода таблиц
@@ -33,6 +32,7 @@ from valutatrade_hub.core.exceptions import (
 BASE_DIR = Path(__file__).parent.parent
 CACHE_PATH = BASE_DIR / "data" / "rates.json"
 
+
 def safe_execute_command(command_func, *args, **kwargs):
     """Безопасное выполнение CLI команд с обработкой ошибок."""
     try:
@@ -40,7 +40,12 @@ def safe_execute_command(command_func, *args, **kwargs):
     except KeyboardInterrupt:
         print("\nОперация прервана пользователем")
         sys.exit(0)
-    except (ValueError, CurrencyNotFoundError, InsufficientFundsError, ApiRequestError) as e:
+    except (
+        ValueError,
+        CurrencyNotFoundError,
+        InsufficientFundsError,
+        ApiRequestError,
+    ) as e:
         # Ошибки бизнес-логики
         print(f"Ошибка: {e}")
         sys.exit(1)
@@ -48,6 +53,7 @@ def safe_execute_command(command_func, *args, **kwargs):
         # Непредвиденные ошибки
         print(f"Критическая ошибка: {e}")
         sys.exit(1)
+
 
 def create_parser() -> argparse.ArgumentParser:
     """Создать парсер аргументов командной строки."""
@@ -86,34 +92,24 @@ def create_parser() -> argparse.ArgumentParser:
     rate = subparsers.add_parser("get-rate")
     rate.add_argument("--from", required=True)  # Исходная валюта (USD)
     rate.add_argument("--to", required=True)  # Целевая валюта (BTC)
-        # Команда update-rates с фильтром по источнику (ТЗ4 4.6.1)
-    update = subparsers.add_parser("update-rates", 
-                                   help="Обновить курсы валют")
+    # Команда update-rates с фильтром по источнику (ТЗ4 4.6.1)
+    update = subparsers.add_parser("update-rates", help="Обновить курсы валют")
     update.add_argument(
         "--source",
         choices=["coingecko", "exchangerate", "all"],
         default="all",
-        help="Источник для обновления (по умолчанию все)"
+        help="Источник для обновления (по умолчанию все)",
     )
 
     # Команда show-rates с фильтрацией (ТЗ4 4.6.2)
-    show_r = subparsers.add_parser("show-rates", 
-                                   help="Показать курсы из кэша")
-    show_r.add_argument(
-        "--currency",
-        type=str,
-        help="Фильтр по валюте (например, BTC)"
-    )
-    show_r.add_argument(
-        "--top",
-        type=int,
-        help="Показать N самых дорогих криптовалют"
-    )
+    show_r = subparsers.add_parser("show-rates", help="Показать курсы из кэша")
+    show_r.add_argument("--currency", type=str, help="Фильтр по валюте (например, BTC)")
+    show_r.add_argument("--top", type=int, help="Показать N самых дорогих криптовалют")
     show_r.add_argument(
         "--base",
         type=str,
         default="USD",
-        help="Базовая валюта для расчета (по умолчанию USD)"
+        help="Базовая валюта для расчета (по умолчанию USD)",
     )
 
     return parser  # Возврат готового парсера
@@ -174,6 +170,7 @@ def require_login() -> None:
         print("Сначала выполните login")
         # Завершение CLI с кодом ошибки 1
         sys.exit(1)  # Happy path: пользователь авторизован, продолжаем
+
 
 def buy_cli(currency: str, amount: float) -> None:
     """CLI обработка покупки валюты с детализированным выводом по ТЗ УЗ 222."""
@@ -273,6 +270,7 @@ def sell_cli(currency: str, amount: float) -> None:
     # 8. Вывод обновленного портфеля (существующий функционал)
     show_portfolio("USD")
 
+
 def get_rate_cli(from_currency: str, to_currency: str) -> None:
     """CLI команда получения курса валют с индикатором свежести и источником данных."""
 
@@ -344,14 +342,13 @@ def cli_update_rates(source: str = "all") -> None:
     try:
         # Создание RatesUpdater с автоматической инициализацией клиентов
         updater = RatesUpdater(clients=[], cache_filepath="data/rates.json")
-        
+
         result = None
         if source in ["coingecko", "exchangerate"]:
             # Выборочное обновление для одного источника
             print(f"Обновление курсов из источника: {source}")
             result = updater.run_update_for_source(
-                source_name="CoinGecko" if source == "coingecko" 
-                else "ExchangeRate"
+                source_name="CoinGecko" if source == "coingecko" else "ExchangeRate"
             )
         else:
             # Обновление из всех источников (по умолчанию)
@@ -369,12 +366,10 @@ def cli_update_rates(source: str = "all") -> None:
         print(f"{status_display}: обновлено {result.total_rates} курсов")
 
         if result.updated_sources:
-            print("Источники (успешные): " + 
-                  ", ".join(sorted(result.updated_sources)))
+            print("Источники (успешные): " + ", ".join(sorted(result.updated_sources)))
         if result.failed_sources:
-            print("Источники (с ошибками): " + 
-                  ", ".join(sorted(result.failed_sources)))
-        
+            print("Источники (с ошибками): " + ", ".join(sorted(result.failed_sources)))
+
         # Логирование ошибок если есть
         if result.error_messages:
             print("Ошибки:")
@@ -422,8 +417,7 @@ def cli_show_rates(
         # Фильтрация по валюте (нечеткий поиск)
         if currency:
             cur_upper = currency.upper()
-            rows = [(pair, data) for pair, data in rows 
-                    if cur_upper in pair.upper()]
+            rows = [(pair, data) for pair, data in rows if cur_upper in pair.upper()]
 
         # Если нет результатов после фильтрации
         if not rows and currency:
@@ -432,7 +426,7 @@ def cli_show_rates(
 
         # Сортировка по курсу (по убыванию) для флага --top
         rows.sort(key=lambda x: x[1].get("rate", 0.0), reverse=True)
-        
+
         # Ограничение количества результатов для --top
         if top is not None and top > 0:
             rows = rows[:top]
@@ -440,7 +434,7 @@ def cli_show_rates(
         # Создание форматированной таблицы с PrettyTable
         table = PrettyTable()
         table.field_names = ["Пара", "Курс", "Обновлено", "Источник", "Свежий"]
-        
+
         # Выравнивание колонок для читаемости
         table.align["Пара"] = "l"
         table.align["Курс"] = "r"
@@ -452,7 +446,7 @@ def cli_show_rates(
             rate_raw = data.get("rate")
             updated_at = data.get("updated_at", "N/A")
             source = data.get("source", "N/A")
-            
+
             # Определение свежести данных через RatesCache
             is_fresh = cache.is_fresh(pair, updated_at)
 
@@ -501,13 +495,16 @@ def cli_show_rates(
         print(f"Ошибка чтения кэша курсов: {e}")
         sys.exit(1)
 
+
 def main(argv: list[str] | None = None) -> None:
     """Главная точка входа CLI."""
     if argv is None:
         argv = sys.argv
 
     if len(argv) == 1:
-        print("Доступные команды: register, login, show-portfolio, buy, sell, get-rate, update-rates, show-rates")
+        print(
+            "Доступные команды: register, login, show-portfolio, buy, sell, get-rate, update-rates, show-rates"
+        )
         return
 
     parser = create_parser()
@@ -517,8 +514,10 @@ def main(argv: list[str] | None = None) -> None:
     try:
         if args.command == "register":
             uid = register_user(args.username, args.password)
-            print(f"Пользователь '{args.username}' зарегистрирован (id={uid}). "
-                  f"Войдите: login --username {args.username} --password ****")
+            print(
+                f"Пользователь '{args.username}' зарегистрирован (id={uid}). "
+                f"Войдите: login --username {args.username} --password ****"
+            )
 
         elif args.command == "login":
             # login_user сам обрабатывает ошибки и выводит сообщения
@@ -552,6 +551,7 @@ def main(argv: list[str] | None = None) -> None:
         # Обработка непредвиденных ошибок при выборе команды
         print(f"Критическая ошибка при обработке команды: {e}")
         sys.exit(1)
+
 
 if __name__ == "__main__":  # Проверка запуска как основного модуля
     main()  # Запуск основной функции
