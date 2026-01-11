@@ -19,6 +19,7 @@ from valutatrade_hub.core.usecases import (  # Импорт бизнес-лог�
     buy_currency,
     sell_currency,
     get_rate,
+    add_funds_to_user
 )
 from valutatrade_hub.core.currencies import (
     get_supported_currencies,
@@ -116,7 +117,7 @@ def create_parser() -> argparse.ArgumentParser:
     log.add_argument("--password", required=True)  # Обязательный аргумент пароля
 
     # show-portfolio
-    show = subparsers.add_parser("show-portfolio")  # Подпарсер для показа портфеля
+    show = subparsers.add_parser("show_portfolio")  # Подпарсер для показа портфеля
     show.add_argument("--base", default="USD")  # Опциональный аргумент базовой валюты
 
     # Сабпарсер для покупки валюты
@@ -130,11 +131,12 @@ def create_parser() -> argparse.ArgumentParser:
     sell.add_argument("--amount", type=float, required=True)  # Сумма продажи
 
     # Подпарсер получения курса валют (не требует авторизации)
-    rate = subparsers.add_parser("get-rate")
+    rate = subparsers.add_parser("get_rate")
     rate.add_argument("--from", required=True)  # Исходная валюта (USD)
     rate.add_argument("--to", required=True)  # Целевая валюта (BTC)
-    # Команда update-rates с фильтром по источнику (ТЗ4 4.6.1)
-    update = subparsers.add_parser("update-rates", help="Обновить курсы валют")
+    # Команда update-rates с фильтром по источнику
+
+    update = subparsers.add_parser("update_rates", help="Обновить курсы валют")
     update.add_argument(
         "--source",
         choices=["coingecko", "exchangerate", "all"],
@@ -143,7 +145,7 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     # Команда show-rates с фильтрацией (ТЗ4 4.6.2)
-    show_r = subparsers.add_parser("show-rates", help="Показать курсы из кэша")
+    show_r = subparsers.add_parser("show_rates", help="Показать курсы из кэша")
     show_r.add_argument("--currency", type=str, help="Фильтр по валюте (например, BTC)")
     show_r.add_argument("--top", type=int, help="Показать N самых дорогих криптовалют")
     show_r.add_argument(
@@ -152,6 +154,10 @@ def create_parser() -> argparse.ArgumentParser:
         default="USD",
         help="Базовая валюта для расчета (по умолчанию USD)",
     )
+    
+    add_funds = subparsers.add_parser("add_funds", help="Пополнить баланс (админ)")
+    add_funds.add_argument("--currency", required=True, help="Валюта для пополнения (USD, EUR, BTC)")
+    add_funds.add_argument("--amount", type=float, required=True, help="Сумма пополнения")
 
     return parser  # Возврат готового парсера
 
@@ -570,8 +576,18 @@ def main(argv: list[str] | None = None) -> None:
             clear_session()  # Очищаем сессию
             print("Выход выполнен. Сессия удалена.")
         
-        elif args.command == "show-portfolio":
+        elif args.command == "show_portfolio":
             safe_execute_command(show_portfolio, args.base)
+
+        elif args.command == "add_funds":
+            # Проверяем авторизацию
+            current_user_id = get_current_user_id()
+            if current_user_id is None:
+                print("Сначала выполните login")
+                sys.exit(1)
+    
+            # Используем функцию пополнения
+            safe_execute_command(add_funds_to_user, current_user_id, args.currency, args.amount)
 
         elif args.command == "buy":
             safe_execute_command(buy_cli, args.currency, args.amount)
@@ -579,13 +595,13 @@ def main(argv: list[str] | None = None) -> None:
         elif args.command == "sell":
             safe_execute_command(sell_cli, args.currency, args.amount)
 
-        elif args.command == "get-rate":
+        elif args.command == "get_rate":
             safe_execute_command(get_rate_cli, args.__getattribute__("from"), args.to)
 
-        elif args.command == "update-rates":
+        elif args.command == "update_rates":
             safe_execute_command(cli_update_rates, args.source)
 
-        elif args.command == "show-rates":
+        elif args.command == "show_rates":
             safe_execute_command(cli_show_rates, args.currency, args.top, args.base)
 
     except KeyboardInterrupt:

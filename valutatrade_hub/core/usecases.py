@@ -264,44 +264,16 @@ def get_current_user() -> User | None:
 
     return None  # Пользователь не найден (редкий случай, например, удален из системы)
 
-
 """
 Бизнес-логика: работа с пользователями и портфелями.
 """
 
-# Функции _load_portfolios_from_db и _save_portfolios_to_db удалены,
-# так как теперь напрямую используем методы DatabaseManager:
-# _db.load_portfolios() и _db.save_portfolios()
-
-# def _load_portfolios_from_db() -> List[Dict]:
-#     """Загрузка портфелей через DatabaseManager.
-
-#     Returns:
-#         Список словарей с данными портфелей
-#     """
-#     return _db.load_portfolios()
-
-# # def save_portfolios(portfolios: List[Dict]) -> None:  # Сохранение
-# #     """Сохранение портфелей."""
-# #     with open(PORTFOLIOS_FILE, 'w', encoding='utf-8') as f:  # Запись
-# #         json.dump(portfolios, f, indent=2, ensure_ascii=False)  # Форматированный JSON
-# def _save_portfolios_to_db(portfolios: List[Dict]) -> None:
-#     """Сохранение портфелей через DatabaseManager.
-#     Args:
-#         portfolios: Список словарей с данными портфелей
-#     """
-#     _db.save_portfolios(portfolios)
-
-
 def load_user(user_id: int) -> Optional[User]:
     """Загрузка пользователя по идентификатору.
-
     Args:
         user_id: Уникальный идентификатор пользователя
-
     Returns:
         Optional[User]: Объект пользователя или None если не найден
-
     Raises:
         DatabaseError: При ошибках загрузки данных пользователей
     """
@@ -325,13 +297,10 @@ def load_user(user_id: int) -> Optional[User]:
 
 def load_portfolio(user_id: int) -> Optional[Portfolio]:
     """Загрузка портфеля пользователя по идентификатору.
-
     Args:
         user_id: Уникальный идентификатор пользователя
-
     Returns:
         Optional[Portfolio]: Объект портфеля или None если не найден
-
     Raises:
         DatabaseError: При ошибках загрузки данных портфелей
     """
@@ -352,6 +321,92 @@ def load_portfolio(user_id: int) -> Optional[Portfolio]:
 
     return None  # Портфель не найден
 
+def add_funds_to_user(user_id: int, currency: str, amount: float) -> None:
+    """Пополнить баланс пользователя (тестовая/админская функция).
+    
+    Args:
+        user_id: ID пользователя
+        currency: Код валюты (USD, EUR, BTC)
+        amount: Сумма для добавления  
+        
+    Raises:
+        ValueError: Если сумма отрицательная или нулевая
+        CurrencyNotFoundError: Если валюта не поддерживается
+        DatabaseError: При ошибках сохранения данных
+    """
+    if amount <= 0:
+        raise ValueError("Сумма пополнения должна быть положительной")
+    
+    # Проверяем поддержку валюты
+    from valutatrade_hub.core.currencies import get_supported_currencies
+    supported = get_supported_currencies()
+    currency_upper = currency.upper()  # Приводим к верхнему регистру
+    if currency_upper not in supported:
+        raise CurrencyNotFoundError(f"Валюта {currency} не поддерживается")
+    
+    try:
+        # Загружаем портфель пользователя
+        portfolio = get_portfolio(user_id)
+        
+        # Получаем кошелек для валюты
+        wallet = portfolio.get_wallet(currency_upper)
+        
+        # Инициализируем переменную для нового баланса
+        new_balance: float = 0.0
+        
+        if wallet:
+            # Если кошелек существует - пополняем через метод deposit()
+            wallet.deposit(amount)
+            new_balance = wallet.balance
+        else:
+            # Если кошелька нет - создаем новый кошелек с начальным балансом
+            from valutatrade_hub.core.models import Wallet as WalletModel
+            # Создаем новый кошелек с указанной суммой
+            new_wallet = WalletModel(currency_upper, amount)
+            # Добавляем в портфель через приватный атрибут _wallets
+            portfolio._wallets[currency_upper] = new_wallet
+            new_balance = amount  # Новый баланс равен добавленной сумме
+        
+        # Сохраняем изменения в базе данных
+        # Загружаем всех пользователей
+        users = _db.load_users()
+        
+        # Ищем пользователя
+        user_found = False
+        for user_data in users:
+            if user_data.get("user_id") == user_id:
+                user_found = True
+                # Инициализируем wallets если нет
+                if "wallets" not in user_data:
+                    user_data["wallets"] = []
+                
+                # Преобразуем портфель в список словарей для сохранения
+                wallets_list = []
+                for curr, w in portfolio._wallets.items():
+                    wallets_list.append({
+                        "currency": curr,
+                        "balance": w.balance
+                    })
+                
+                # Обновляем wallets пользователя
+                user_data["wallets"] = wallets_list
+                break
+        
+        if not user_found:
+            raise ValueError(f"Пользователь с ID {user_id} не найден в базе данных")
+        
+        # Сохраняем изменения
+        _db.save_users(users)
+        
+        # Выводим результат
+        print(f"✅ Баланс пользователя {user_id} пополнен: +{amount} {currency_upper}")
+        print(f"   Новый баланс {currency_upper}: {new_balance:.4f}")
+        
+    except Exception as e:
+        # Логирование ошибки
+        import logging
+        logging.getLogger("usecases").error(f"Ошибка пополнения баланса: {e}")
+        raise
 
 def get_portfolio(user_id: int) -> Portfolio:
     """
